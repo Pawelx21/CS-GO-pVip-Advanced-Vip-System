@@ -1,4 +1,4 @@
-# CS-GO-pVIp-Advanced-Vip-System
+# CS-GO-pVip-Advanced-Vip-System
 Opis:
 Plugin wprowadza na serwer system grup, które mogą mieć dodatkowe przywileje.
 
