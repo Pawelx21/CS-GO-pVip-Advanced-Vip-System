@@ -157,6 +157,7 @@ enum struct Enum_ClientInfo {
 	int iGroupId;
 	int iGrenadeSet;
 	bool bDoubleJump;
+	bool bGunMenu;
 	
 	void Reset() {
 		this.sName = "";
@@ -166,6 +167,7 @@ enum struct Enum_ClientInfo {
 		this.sPrimary = "";
 		this.sSecondary = "";
 		this.bDoubleJump = true;
+		this.bGunMenu = true;
 		this.iGrenadeSet = -1;
 	}
 }
@@ -181,7 +183,7 @@ enum struct Enum_PluginInfo {
 	char sChatTag[64];
 }
 enum struct Enum_GrenadeSetsInfo {
-	char sName[32];
+	char sName[64];
 	char sFlags[16];
 	int iTeam;
 	int iAmount[MAX_SET_ITEMS];
@@ -253,6 +255,15 @@ native void pVip_SetPluginStatus(bool bEnabled);
  */
 native bool pVip_GetPluginStatus();
 
+/* 
+ * Szuka Id grupy na podstawie flag oraz teamu.
+ *
+ * @param sFlags		Flagi
+ * @param iTeam			Id Teamu (0 - BOTH)
+ *
+ * @return		W przypadku powodzenia zwróci ID grupy, w przeciwnym -1;
+ */
+native int pVip_GetGroupIdByFlags(char[] sFlags, int iTeam = 0);
 /*
  * Wywołuje się po nadaniu grupy graczowi.
  *

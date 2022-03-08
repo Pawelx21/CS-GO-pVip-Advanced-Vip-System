@@ -8,6 +8,7 @@
 *	1.0.4 - Dodanie nativów do włączania/wyłączania działania systemu oraz pobierania stanu jego działania.
 *	1.0.5 - Dodano zestawy granatów do menu broni, dodatkowe zabezpieczenia, możliwość włączenia/wyłączenia double jumpa, możliwość tworzenia grup dla zwykłych graczy (brak flag)
 *	1.0.6 - Dodano kompatybilność z pShopem.
+*	1.0.7 - Dodano nativ, który wyszukje ID grupy po jego flagach oraz drużynie.
 *
 ********************************** [ ChangeLog ] *******************************/
 
@@ -97,7 +98,7 @@ public Plugin myinfo = {
 	name = "[CS:GO] Pawel - [ pVip ]", 
 	author = "Pawel", 
 	description = "Rozbudowany system VIP na serwery CS:GO by Paweł.", 
-	version = "1.0.5", 
+	version = "1.0.7", 
 	url = "https://steamcommunity.com/id/pawelsteam"
 };
 
@@ -1585,6 +1586,7 @@ public APLRes AskPluginLoad2(Handle hMySelf, bool bLate, char[] sError, int iErr
 	CreateNative("pVip_PreparePlayerSetup", Native_PreparePlayerSetup);
 	CreateNative("pVip_SetPluginStatus", Native_SetPluginStatus);
 	CreateNative("pVip_GetPluginStatus", Native_GetPluginStatus);
+	CreateNative("pVip_GetGroupIdByFlags", Native_GetGroupIdByFlags);
 	RegPluginLibrary("pVip-Core");
 	return APLRes_Success;
 }
@@ -1664,4 +1666,18 @@ public int Native_SetPluginStatus(Handle hPlugin, int iNumParams) {
 
 public int Native_GetPluginStatus(Handle hPlugin, int iNumParams) {
 	return view_as<int>(g_bEnabled);
+}
+
+public int Native_GetGroupIdByFlags(Handle hPlugin, int iNumParams) {
+	char sFlags[16];
+	GetNativeString(1, sFlags, sizeof(sFlags));
+	int iTeam = GetNativeCell(2);
+	for (int i = 0; i < g_ePlugin.iGroups; i++) {
+		if (StrEqual(g_eGroup[i].sFlags, sFlags)) {
+			if (iTeam != 0 && g_eGroup[i].iStats[GROUP_TEAM] == iTeam)
+				return i;
+			return i;
+		}
+	}
+	return -1;
 } 
