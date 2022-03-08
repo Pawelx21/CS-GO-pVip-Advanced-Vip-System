@@ -11,6 +11,7 @@ Changelog:
   - 1.0.4 - Dodanie nativów do włączenia/wyłączenia działania systemu, pobierania stanu jego działania.
   - 1.0.5 - Dodano możliwość tworzenia zestawów granatów, grup dla zwykłych graczy (brak flag), włączanie/wyłączanie double jumpa, wprowadzono dodatkowe zabezpieczenia.
   - 1.0.6 - Dodano kompatybliność z pShopem (Chat) 
+  - 1.0.7 - Dodano nativ, który pobiera ID grupy na podstawie jej flag oraz teamu.
 
 # Funkcje
 Coming soon
