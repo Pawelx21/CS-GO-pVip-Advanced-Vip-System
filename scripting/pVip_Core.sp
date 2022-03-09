@@ -1307,6 +1307,7 @@ void LoadClientGroup(int iClient, bool bWelcome = false) {
 	Call_PushCell(iClient);
 	Call_PushCell(g_eInfo[iClient].iGroupId);
 	Call_Finish();
+	PrintToConsole(iClient, "Nadano grupę: %s", g_eGroup[g_eInfo[iClient].iGroupId].sName);
 	
 	Format(g_eInfo[iClient].sName, MAX_NAME_LENGTH, "%N", iClient);
 	if (bWelcome)
@@ -1672,7 +1673,7 @@ public int Native_GetGroupIdByFlags(Handle hPlugin, int iNumParams) {
 	char sFlags[16];
 	GetNativeString(1, sFlags, sizeof(sFlags));
 	int iTeam = GetNativeCell(2);
-	for (int i = 0; i < g_ePlugin.iGroups; i++) {
+	for (int i = 1; i <= g_ePlugin.iGroups; i++) {
 		if (StrEqual(g_eGroup[i].sFlags, sFlags)) {
 			if (iTeam != 0 && g_eGroup[i].iStats[GROUP_TEAM] == iTeam)
 				return i;
