@@ -9,6 +9,7 @@
 *	1.0.5 - Dodano zestawy granatów do menu broni, dodatkowe zabezpieczenia, możliwość włączenia/wyłączenia double jumpa, możliwość tworzenia grup dla zwykłych graczy (brak flag)
 *	1.0.6 - Dodano kompatybilność z pShopem.
 *	1.0.7 - Dodano nativ, który wyszukje ID grupy po jego flagach oraz drużynie.
+*	1.0.8 - Poprawiono nadawanie grup dla graczy.
 *
 ********************************** [ ChangeLog ] *******************************/
 
@@ -98,7 +99,7 @@ public Plugin myinfo = {
 	name = "[CS:GO] Pawel - [ pVip ]", 
 	author = "Pawel", 
 	description = "Rozbudowany system VIP na serwery CS:GO by Paweł.", 
-	version = "1.0.7", 
+	version = "1.0.8", 
 	url = "https://steamcommunity.com/id/pawelsteam"
 };
 
@@ -257,8 +258,6 @@ public Action Event_PlayerSpawn(Event eEvent, const char[] sName, bool bDontBroa
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_TAKE] = 100;
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_FALL] = 100;
 		LoadClientGroup(iClient);
-		if (!IsWarmup())
-			CreateTimer(0.5, Timer_SetSpawn, iClient, TIMER_FLAG_NO_MAPCHANGE);
 		return Plugin_Continue;
 	}
 	return Plugin_Continue;
@@ -1297,17 +1296,21 @@ int GetRoundNumber() {
 }
 
 void LoadClientGroup(int iClient, bool bWelcome = false) {
+	g_eInfo[iClient].iGroupId = 0;
 	for (int i = 1; i <= g_ePlugin.iGroups; i++) {
-		if (CheckFlags(iClient, g_eGroup[i].sFlags) && GetClientTeam(iClient) == g_eGroup[i].iStats[GROUP_TEAM]) {
+		if (CheckFlags(iClient, g_eGroup[i].sFlags) && (!g_eGroup[i].iStats[GROUP_TEAM] || GetClientTeam(iClient) == g_eGroup[i].iStats[GROUP_TEAM])) {
 			g_eInfo[iClient].iGroupId = i;
+			PrintToConsole(iClient, "Nadana grupa: %s", g_eGroup[g_eInfo[iClient].iGroupId].sName);
 			break;
 		}
 	}
+	
 	Call_StartForward(g_gfGroupReceived);
 	Call_PushCell(iClient);
 	Call_PushCell(g_eInfo[iClient].iGroupId);
 	Call_Finish();
-	PrintToConsole(iClient, "Nadano grupę: %s", g_eGroup[g_eInfo[iClient].iGroupId].sName);
+	if (!IsWarmup())
+		CreateTimer(0.5, Timer_SetSpawn, iClient, TIMER_FLAG_NO_MAPCHANGE);
 	
 	Format(g_eInfo[iClient].sName, MAX_NAME_LENGTH, "%N", iClient);
 	if (bWelcome)
@@ -1413,15 +1416,16 @@ bool CheckFlags(int iClient, char[] sFlags) {
 	if (StrEqual(sFlags, ""))return true;
 	if (GetUserFlagBits(iClient) & ADMFLAG_ROOT)return true;
 	int iCount = CountCharacters(sFlags);
-	int iAccess = 0;
-	char sFlag[16];
-	for (int i = 0; i < iCount; i++) {
-		Format(sFlag, sizeof(sFlag), "%c", sFlags[i]);
-		if (GetUserFlagBits(iClient) & ReadFlagString(sFlag))
-			iAccess++;
+	if (iCount > 1) {
+		int iAccess = 0;
+		char sFlag[16];
+		for (int i = 0; i < iCount; i++) {
+			Format(sFlag, sizeof(sFlag), "%c", sFlags[i]);
+			if (GetUserFlagBits(iClient) & ReadFlagString(sFlag))
+				iAccess++;
+		}
+		if (iAccess == iCount)return true;
 	}
-	if (iAccess == iCount)
-		return true;
 	if (GetUserFlagBits(iClient) & ReadFlagString(sFlags))return true;
 	if (StrEqual(sFlags, ""))return true;
 	return false;
