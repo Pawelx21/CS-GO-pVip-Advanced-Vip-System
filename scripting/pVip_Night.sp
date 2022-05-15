@@ -78,7 +78,8 @@ public Action Event_PlayerSpawn(Event eEvent, const char[] sName, bool bDontBroa
 	}
 	if (g_bFreeGroup[iClient]) {
 		pVip_SetClientGroup(iClient, g_iCvar[NIGHT_GROUP]);
-		pVip_PreparePlayerSetup(iClient);
+		if (!IsWarmup())
+			pVip_PreparePlayerSetup(iClient);
 	}
 	return Plugin_Continue;
 }
@@ -161,3 +162,9 @@ void CheckHour() {
 			g_bEnabled = false;
 	}
 } 
+
+bool IsWarmup() {
+	int iWarmup = GameRules_GetProp("m_bWarmupPeriod", 4, 0);
+	if (iWarmup == 1)return true;
+	else return false;
+}
