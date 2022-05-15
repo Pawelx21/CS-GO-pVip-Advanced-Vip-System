@@ -18,16 +18,17 @@ Enum_PluginInfo g_ePlugin;
 
 /* [ Booleans ] */
 bool g_bEnabled;
+bool g_bFreeGroup[MAXPLAYERS];
 
 /* [ Integers ] */
 int g_iCvar[3];
 
 /* [ Plugin Author And Informations ] */
-public Plugin myinfo =  {
+public Plugin myinfo = {
 	name = "[CS:GO] Pawel - [ pVip - Night Vip ]", 
 	author = "Pawel", 
 	description = "Moduł do systemu Vip na serwery CS:GO by Paweł.", 
-	version = "1.0.0", 
+	version = "1.0.1", 
 	url = "https://steamcommunity.com/id/pawelsteam"
 };
 
@@ -47,6 +48,19 @@ public void OnConfigsExecuted() {
 	LoadConfig();
 }
 
+public void OnMapStart() {
+	CheckHour();
+}
+
+public void OnClientPostAdminCheck(int iClient) {
+	if (IsValidClient(iClient))
+		g_bFreeGroup[iClient] = false;
+}
+public void OnClientDisconnect(int iClient) {
+	if (IsValidClient(iClient))
+		g_bFreeGroup[iClient] = false;
+}
+
 /* [ Events ] */
 public Action Event_RoundStart(Event eEvent, const char[] sName, bool bDontBroadcast) {
 	CheckHour();
@@ -58,9 +72,14 @@ public Action Event_PlayerSpawn(Event eEvent, const char[] sName, bool bDontBroa
 	if (!IsValidClient(iClient))return Plugin_Continue;
 	Enum_ClientInfo eInfo;
 	pVip_GetClientInfo(iClient, eInfo);
-	if (!eInfo.iGroupId)
+	if (!eInfo.iGroupId && !g_bFreeGroup[iClient]) {
 		pVip_SetClientGroup(iClient, g_iCvar[NIGHT_GROUP]);
-	pVip_PreparePlayerSetup(iClient);
+		g_bFreeGroup[iClient] = true;
+	}
+	if (g_bFreeGroup[iClient]) {
+		pVip_SetClientGroup(iClient, g_iCvar[NIGHT_GROUP]);
+		pVip_PreparePlayerSetup(iClient);
+	}
 	return Plugin_Continue;
 }
 
