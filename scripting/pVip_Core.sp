@@ -7,6 +7,9 @@
 *	1.0.3 - Poprawa nadawania grupy
 *	1.0.4 - Dodanie nativów do włączania/wyłączania działania systemu oraz pobierania stanu jego działania.
 *	1.0.5 - Dodano zestawy granatów do menu broni, dodatkowe zabezpieczenia, możliwość włączenia/wyłączenia double jumpa, możliwość tworzenia grup dla zwykłych graczy (brak flag)
+*	1.0.6 - Dodano kompatybilność z pShop-Chatem.
+*	1.0.7 - Dodano nativ, który wyszukje ID grupy po jego flagach oraz drużynie.
+*	1.0.8 - Poprawiono nadawanie grup dla graczy.
 *
 ********************************** [ ChangeLog ] *******************************/
 
@@ -23,13 +26,17 @@
 #pragma semicolon		1
 
 /* [ Defines ] */
-#define LoopClients(%1)		for(int %1 = 1; %1 < MaxClients; %1++) if(IsValidClient(%1))
+#define LoopValidClients(%1)		for(int %1 = 1; %1 < MaxClients; %1++) if(IsValidClient(%1))
 #define MAX_GROUPS			16
 #define MAX_GRENADES_SETS	10
 #define PRIMARY				0
 #define SECONDARY			1
 #define MAIN				2
 #define GRENADES			3
+#define TAG					0
+#define COLOR				1
+#define NAME				2
+#define MESSAGE				3
 
 /* [ Global Forwards ] */
 GlobalForward g_gfSpawn;
@@ -38,10 +45,10 @@ GlobalForward g_gfRespawned;
 GlobalForward g_gfConfigLoaded;
 
 /* [ Enums ] */
-Enum_GroupInfo g_eGroup[MAX_GROUPS];
-Enum_ClientInfo g_eInfo[MAXPLAYERS + 1];
-Enum_PluginInfo g_ePlugin;
-Enum_GrenadeSetsInfo g_eGrenades[MAX_GRENADES_SETS];
+Enum_VipGroupInfo g_eGroup[MAX_GROUPS];
+Enum_VipClientInfo g_eInfo[MAXPLAYERS + 1];
+Enum_VipCoreInfo g_eCore;
+Enum_VipGrenadeSetsInfo g_eGrenades[MAX_GRENADES_SETS];
 
 /* [ Handles ] */
 Handle g_hHud;
@@ -77,11 +84,12 @@ char g_sConVars[][][] = {
 	{ "Damage_Give_Round", "1" }, { "Damage_Take_Percent", "100" }, { "Damage_Take_Round", "1" }, { "Damage_Fall_Percent", "100" }, { "Damage_Fall_Round", "1" }, { "Welcome_Hud", "Na serwer wbija » {GROUP} {NAME} «" }, 
 	{ "Goodbye_Hud", "Z serwera wychodzi » {GROUP} {NAME} «" }, { "Hud_Position_X", "-1.0" }, { "Hud_Position_Y", "-0.9" }, { "Hud_Color_Red", "0" }, { "Hud_Color_Green", "255" }, { "Hud_Color_Blue", "255" }, 
 	{ "Welcome_Chat", "{orange}*******************\\n {default}• {orange}{GROUP} {NAME}{default} wbija na serwer.\\n{orange}*******************" }, { "Goodbye_Chat", "{orange}*******************\\n {default}• {orange}{GROUP} {NAME}{default} wychodzi z serwera.\\n{orange}*******************" }, 
-	{ "Respawn_Percent", "0" }, { "Respawn_Round", "1" }
+	{ "Respawn_Percent", "0" }, { "Respawn_Round", "1" }, { "Unlimited_Primary_Ammo", "0" }, { "Unlimited_Primary_Ammo_Round", "1" }, { "Unlimited_Secondary_Ammo", "0" }, { "Unlimited_Secondary_Ammo_Round", "1" }
 };
 
 /* [ Booleans ] */
 bool g_bEnabled = true;
+bool g_bShopChatModule = false;
 
 /* [ Menus ] */
 Menu g_mMenu;
@@ -91,7 +99,7 @@ public Plugin myinfo = {
 	name = "[CS:GO] Pawel - [ pVip ]", 
 	author = "Pawel", 
 	description = "Rozbudowany system VIP na serwery CS:GO by Paweł.", 
-	version = "1.0.5", 
+	version = "1.0.8", 
 	url = "https://steamcommunity.com/id/pawelsteam"
 };
 
@@ -104,8 +112,7 @@ public void OnPluginStart() {
 	/* [ Commands ] */
 	RegConsoleCmd("sm_heal", Heal_Command);
 	RegConsoleCmd("sm_dj", DoubleJump_Command);
-	RegConsoleCmd("sm_vipmenu", VipMenu_Command);
-	RegConsoleCmd("sm_gunmenu", GunMenu_Command);
+	RegConsoleCmd("sm_pvip_debug", Debug_Command);
 	
 	/* [ Events ] */
 	HookEvent("weapon_reload", Event_WeaponReload);
@@ -134,7 +141,7 @@ public void OnPluginStart() {
 	CreateArrays();
 	
 	/* [ Late Load ] */
-	LoopClients(i)
+	LoopValidClients(i)
 	OnClientPostAdminCheck(i);
 }
 
@@ -143,19 +150,27 @@ public void OnConfigsExecuted() {
 	LoadConfig();
 }
 
-public void OnMapStart() {
-	g_bEnabled = true;
-	g_ePlugin.bChatSystem[0] = LibraryExists("chat-processor");
-	if (g_ePlugin.bChatSystem[0]) {
+public void OnAllPluginsLoaded() {
+	g_eCore.bChatSystem[0] = LibraryExists("chat-processor");
+	if (g_eCore.bChatSystem[0]) {
 		PrintToServer("✔ pVip Core | Wykryto Chat-Processor by Drixevel.");
 		return;
 	}
-	g_ePlugin.bChatSystem[1] = LibraryExists("scp");
-	if (g_ePlugin.bChatSystem[1]) {
+	g_eCore.bChatSystem[1] = LibraryExists("scp");
+	if (g_eCore.bChatSystem[1]) {
 		PrintToServer("✔ pVip Core | Wykryto Simple Chat Processor by Mini.");
 		return;
 	}
-	g_ePlugin.iGroups = 0;
+	g_bShopChatModule = LibraryExists("pShop-Chat");
+	if (g_bShopChatModule) {
+		PrintToServer("✔ pShop-Chat | Wykryto sklep by Pawel.");
+		return;
+	}
+}
+
+public void OnMapStart() {
+	g_bEnabled = true;
+	g_eCore.iGroups = 0;
 }
 
 public void OnClientPostAdminCheck(int iClient) {
@@ -179,81 +194,42 @@ public void OnMapEnd() {
 }
 
 /* [ Commands ] */
-public Action VipMenu_Command(int iClient, int iArgs) {
-	if (HasGroup(iClient) && !IsWarmup())
-		DisplayVipMenu(iClient).Display(iClient, MENU_TIME_FOREVER);
-	return Plugin_Handled;
-}
-
-public Action GunMenu_Command(int iClient, int iArgs) {
-	if (HasGroup(iClient) && !IsWarmup())
-		if ((g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_PRIMARY_MENU] && g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND] <= g_ePlugin.iRound)
-		 && (g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_SECONDARY_MENU] && g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND] <= g_ePlugin.iRound))
-	DisplayWeaponsMenu(iClient, MAIN).Display(iClient, 15);
-	return Plugin_Handled;
-}
-
-
-Menu DisplayVipMenu(int iClient) {
-	char sBuffer[256];
-	Format(sBuffer, sizeof(sBuffer), "[ ★ %s » %s ★ ]\n ", g_ePlugin.sMenuTag, g_eGroup[g_eInfo[iClient].iGroupId].sName);
-	Format(sBuffer, sizeof(sBuffer), "%s\n➪ Wybierz co chcesz zrobić?", sBuffer);
-	Format(sBuffer, sizeof(sBuffer), "%s\n---------------------------------------------", sBuffer);
-	g_mMenu = new Menu(VipMenu_Handler);
-	g_mMenu.SetTitle(sBuffer);
-	int iGroupId = g_eInfo[iClient].iGroupId;
-	
-	int iDrawtype = g_eGroup[iGroupId].iStats[GROUP_DOUBLE_JUMP] ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED;
-	Format(sBuffer, sizeof(sBuffer), "» %s Double Jumpa.", g_eInfo[iClient].bDoubleJump ? "Wyłącz":"Włącz");
-	g_mMenu.AddItem("", sBuffer, iDrawtype);
-	
-	iDrawtype = g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU] && g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU_ROUND] <= g_ePlugin.iRound ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED;
-	g_mMenu.AddItem("", "» Wybierz zestaw granatów.", iDrawtype);
-	
-	iDrawtype = (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND] <= g_ePlugin.iRound && g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND] <= g_ePlugin.iRound) ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED;
-	g_mMenu.AddItem("", "» Wybierz zestaw broni [!gunmenu]", iDrawtype);
-	return g_mMenu;
-}
-
-public int VipMenu_Handler(Menu mMenu, MenuAction maAction, int iClient, int iPosition) {
-	switch (maAction) {
-		case MenuAction_Select: {
-			switch (iPosition) {
-				case 0: {
-					g_eInfo[iClient].bDoubleJump = g_eInfo[iClient].bDoubleJump ? false:true;
-					CPrintToChat(iClient, "%s Double Jump został %s{default}.", g_ePlugin.sChatTag, g_eInfo[iClient].bDoubleJump ? "{lime}włączony":"{lightred}wyłączony");
-					DisplayVipMenu(iClient).Display(iClient, MENU_TIME_FOREVER);
-				}
-				case 1: {
-					DisplayWeaponsMenu(iClient, GRENADES).Display(iClient, 15);
-				}
-				case 2: {
-					DisplayWeaponsMenu(iClient, MAIN).Display(iClient, 15);
-				}
-			}
-		}
-		case MenuAction_End:delete mMenu;
+public Action Debug_Command(int iClient, int iArgs) {
+	if (g_eInfo[iClient].iGroupId)
+		CPrintToChat(iClient, "Twoja grupa: %s", g_eGroup[g_eInfo[iClient].iGroupId].sName);
+	else CPrintToChat(iClient, "Nie masz grupy");
+	char sName[32], sClass[32], sFlags[32];
+	for (int i = 0; i < g_arWeapons[PRIMARY][0].Length; i++) {
+		g_arWeapons[PRIMARY][1].GetString(i, sName, sizeof(sName));
+		g_arWeapons[PRIMARY][2].GetString(i, sClass, sizeof(sClass));
+		g_arWeapons[PRIMARY][4].GetString(i, sFlags, sizeof(sFlags));
+		PrintToConsole(iClient, "%s - %s - %s", sName, sClass, sFlags);
+	}
+	for (int i = 0; i < g_arWeapons[SECONDARY][0].Length; i++) {
+		g_arWeapons[SECONDARY][1].GetString(i, sName, sizeof(sName));
+		g_arWeapons[SECONDARY][2].GetString(i, sClass, sizeof(sClass));
+		g_arWeapons[SECONDARY][4].GetString(i, sFlags, sizeof(sFlags));
+		PrintToConsole(iClient, "%s - %s - %s", sName, sClass, sFlags);
 	}
 }
-
 public Action DoubleJump_Command(int iClient, int iArgs) {
 	if (HasGroup(iClient) && g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_DOUBLE_JUMP] && g_bEnabled) {
 		g_eInfo[iClient].bDoubleJump = g_eInfo[iClient].bDoubleJump ? false:true;
-		CPrintToChat(iClient, "%s Double Jump został %s{default}.", g_ePlugin.sChatTag, g_eInfo[iClient].bDoubleJump ? "{lime}włączony":"{lightred}wyłączony");
+		CPrintToChat(iClient, "%s Double Jump został %s{default}.", g_eConfig.sChatTag, g_eInfo[iClient].bDoubleJump ? "{lime}włączony":"{lightred}wyłączony");
 		return Plugin_Handled;
 	}
 	return Plugin_Handled;
 }
 public Action CS_OnBuyCommand(int iClient, const char[] sWeapon) {
-	if (g_ePlugin.iDisableBuyHelemet && g_ePlugin.iRound == 1 && StrEqual(sWeapon, "assaultsuit") && g_bEnabled) {
-		CPrintToChat(iClient, "%s Nie możesz tego kupić na pistoletówce.", g_ePlugin.sChatTag);
+	if (g_eCore.iDisableBuyHelemet && g_eCore.iRound == 1 && StrEqual(sWeapon, "assaultsuit") && g_bEnabled) {
+		CPrintToChat(iClient, "%s Nie możesz tego kupić na pistoletówce.", g_eConfig.sChatTag);
 		return Plugin_Handled;
 	}
 	return Plugin_Continue;
 }
 
 public Action Heal_Command(int iClient, int iArgs) {
-	if (!IsValidClient(iClient, true) || !HasGroup(iClient) || !g_bEnabled || !g_ePlugin.iHealType || !g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_HEAL_NUM])return Plugin_Handled;
+	if (!IsValidClient(iClient, true) || !HasGroup(iClient) || !g_bEnabled || !g_eCore.iHealType || !g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_HEAL_NUM])return Plugin_Handled;
 	if (g_eInfo[iClient].iStats[CLIENT_HEALS]) {
 		g_iValue = g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_HEAL_VALUE];
 		if (GetClientHealth(iClient) < g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_MAX_HP]) {
@@ -262,19 +238,19 @@ public Action Heal_Command(int iClient, int iArgs) {
 			else
 				SetClientHealth(iClient, GetClientHealth(iClient) + g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_HEAL_VALUE]);
 			g_eInfo[iClient].iStats[CLIENT_HEALS]--;
-			CPrintToChat(iClient, "%s Zostałeś {lime}uleczony{default}. Pozostałe apteczki: {lime}%d{default}.", g_ePlugin.sChatTag, g_eInfo[iClient].iStats[CLIENT_HEALS]);
+			CPrintToChat(iClient, "%s Zostałeś {lime}uleczony{default}. Pozostałe apteczki: {lime}%d{default}.", g_eConfig.sChatTag, g_eInfo[iClient].iStats[CLIENT_HEALS]);
 		}
-		else CPrintToChat(iClient, "%s Posiadasz max hp.", g_ePlugin.sChatTag);
+		else CPrintToChat(iClient, "%s Posiadasz max hp.", g_eConfig.sChatTag);
 	}
-	else CPrintToChat(iClient, "%s Nie posiadasz uleczeń.", g_ePlugin.sChatTag);
+	else CPrintToChat(iClient, "%s Nie posiadasz uleczeń.", g_eConfig.sChatTag);
 	return Plugin_Handled;
 }
 
 /* [ Events ] */
 public Action Event_WeaponReload(Event eEvent, const char[] sName, bool bDontBroadcast) {
 	int iClient = GetClientOfUserId(eEvent.GetInt("userid"));
-	if (!IsValidClient(iClient, true) || !HasGroup(iClient) || !g_bEnabled || g_ePlugin.iHealType || !g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_HEAL_NUM])return Plugin_Continue;
-	if (g_eInfo[iClient].iStats[CLIENT_HEALS]) {
+	if (!IsValidClient(iClient, true) || !HasGroup(iClient) || !g_bEnabled)return Plugin_Continue;
+	if (g_eInfo[iClient].iStats[CLIENT_HEALS] && !g_eCore.iHealType && g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_HEAL_NUM]) {
 		g_iValue = g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_HEAL_VALUE];
 		if (GetClientHealth(iClient) < g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_MAX_HP]) {
 			if (GetClientHealth(iClient) + g_iValue > g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_MAX_HP])
@@ -282,17 +258,28 @@ public Action Event_WeaponReload(Event eEvent, const char[] sName, bool bDontBro
 			else
 				SetClientHealth(iClient, GetClientHealth(iClient) + g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_HEAL_VALUE]);
 			g_eInfo[iClient].iStats[CLIENT_HEALS]--;
-			CPrintToChat(iClient, "%s Zostałeś {lime}uleczony{default}. Pozostałe apteczki: {lime}%d{default}.", g_ePlugin.sChatTag, g_eInfo[iClient].iStats[CLIENT_HEALS]);
+			CPrintToChat(iClient, "%s Zostałeś {lime}uleczony{default}. Pozostałe apteczki: {lime}%d{default}.", g_eConfig.sChatTag, g_eInfo[iClient].iStats[CLIENT_HEALS]);
 		}
-		else CPrintToChat(iClient, "%s Posiadasz max hp.", g_ePlugin.sChatTag);
+		else CPrintToChat(iClient, "%s Posiadasz max hp.", g_eConfig.sChatTag);
 	}
-	else CPrintToChat(iClient, "%s Nie posiadasz uleczeń.", g_ePlugin.sChatTag);
+	if (g_eInfo[iClient].bAmmo[1]) {
+		int iWeapon = GetEntPropEnt(iClient, Prop_Send, "m_hActiveWeapon");
+		char sClass[32];
+		GetEdictClassname(iWeapon, sClass, sizeof(sClass));
+		if (IsValidWeapon(iWeapon) && !IsWeaponGrenade(sClass) && !IsWeaponKnife(sClass))
+			SetEntProp(iWeapon, Prop_Send, "m_iPrimaryReserveAmmoCount", 420);
+	}
 	return Plugin_Continue;
 }
+
 public Action Event_PlayerSpawn(Event eEvent, const char[] sName, bool bDontBroadcast) {
 	if (!g_bEnabled)return Plugin_Continue;
 	int iClient = GetClientOfUserId(eEvent.GetInt("userid"));
 	if (IsValidClient(iClient)) {
+		if (g_eCore.iRound == 1) {
+			g_eInfo[iClient].sPrimary = "";
+			g_eInfo[iClient].sSecondary = "";
+		}
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_GIVE] = 100;
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_TAKE] = 100;
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_FALL] = 100;
@@ -313,7 +300,7 @@ public Action Event_PlayerDeath(Event eEvent, const char[] sName, bool bDontBroa
 	int iAttacker = GetClientOfUserId(eEvent.GetInt("attacker"));
 	int iClient = GetClientOfUserId(eEvent.GetInt("userid"));
 	if (!IsValidClient(iClient) || !IsValidClient(iAttacker))return Plugin_Continue;
-	if (!g_ePlugin.iDeathmatchMode) {
+	if (!g_eCore.iDeathmatchMode) {
 		if (GetClientTeam(iAttacker) == GetClientTeam(iClient))
 			return Plugin_Continue;
 	}
@@ -325,22 +312,22 @@ public Action Event_PlayerDeath(Event eEvent, const char[] sName, bool bDontBroa
 		if (!IsClientInTeam(iAssister, g_eGroup[iGroupId].iStats[GROUP_TEAM]))
 			return Plugin_Continue;
 		g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ASSIST];
-		if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ASSIST_ROUND]) {
+		if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ASSIST_ROUND]) {
 			SetClientCash(iAssister, GetClientCash(iAssister) + g_iValue);
 			if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ASSIST_INFO])
-				CPrintToChat(iAssister, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za asystowanie przy zabójstwie", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+				CPrintToChat(iAssister, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za asystowanie przy zabójstwie", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 		}
 		g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ASSIST];
-		if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ASSIST_ROUND]) {
+		if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ASSIST_ROUND]) {
 			SetClientHealth(iAssister, GetClientHealth(iAssister) + g_iValue);
 			if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ASSIST_INFO])
-				CPrintToChat(iAssister, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za asystowanie przy zabójstwie", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+				CPrintToChat(iAssister, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za asystowanie przy zabójstwie", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 		}
 	}
 	if (HasGroup(iClient)) {
 		iGroupId = g_eInfo[iClient].iGroupId;
 		if (IsClientInTeam(iClient, g_eGroup[iGroupId].iStats[GROUP_TEAM])) {
-			if (g_eGroup[iGroupId].iStats[GROUP_RESPAWN_CHANCE] >= GetRandomInt(1, 100) && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_RESPAWN_CHANCE_ROUND])
+			if (g_eGroup[iGroupId].iStats[GROUP_RESPAWN_CHANCE] >= GetRandomInt(1, 100) && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_RESPAWN_CHANCE_ROUND])
 				CreateTimer(0.5, Timer_Respawn, iClient, TIMER_FLAG_NO_MAPCHANGE);
 		}
 	}
@@ -353,87 +340,87 @@ public Action Event_PlayerDeath(Event eEvent, const char[] sName, bool bDontBroa
 			eEvent.GetString("weapon", sWeapon, sizeof(sWeapon));
 			if (bHeadshot) {
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_HS];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_HS_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_HS_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_HS_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo poprzez {lime}HeadShota{default}.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo poprzez {lime}HeadShota{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_HS];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_HS_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_HS_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_HS_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo poprzez {lime}HeadShota{default}.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo poprzez {lime}HeadShota{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 			else {
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo .", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo .", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 			
 			if (bNoscope) {
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_NOSCOPE];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_NOSCOPE_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_NOSCOPE_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_NOSCOPE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo poprzez {lime}Noscope{default}.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo poprzez {lime}Noscope{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_NOSCOPE];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_NOSCOPE_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_NOSCOPE_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_NOSCOPE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo poprzez {lime}Noscope{default}.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo poprzez {lime}Noscope{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 			if (IsWeaponKnife(sWeapon)) {
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KNIFE];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KNIFE_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KNIFE_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KNIFE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}noża{default}.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}noża{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KNIFE];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KNIFE_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KNIFE_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KNIFE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}noża{default}.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}noża{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 			else if (IsWeaponGrenade(sWeapon)) {
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_GRENADE];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_GRENADE_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_GRENADE_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_GRENADE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}granatu{default}.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}granatu{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_GRENADE];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_GRENADE_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_GRENADE_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_GRENADE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}granatu{default}.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}granatu{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 			else if (StrContains(sWeapon, "taser") != -1) {
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ZEUS];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ZEUS_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ZEUS_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ZEUS_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}zeusa{default}.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}zeusa{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ZEUS];
-				if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ZEUS_ROUND]) {
+				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ZEUS_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ZEUS_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}zeusa{default}.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}zeusa{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 		}
@@ -449,10 +436,10 @@ public Action Event_BombPlanted(Event eEvent, const char[] sName, bool bDontBroa
 	if (!IsClientInTeam(iClient, g_eGroup[iGroupId].iStats[GROUP_TEAM]))
 		return Plugin_Continue;
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_PLANT];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_PLANT_ROUND]) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_PLANT_ROUND]) {
 		SetClientCash(iClient, GetClientCash(iClient) + g_iValue);
 		if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_PLANT_INFO])
-			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za podłożenie bomby.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za podłożenie bomby.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 	}
 	return Plugin_Continue;
 }
@@ -465,10 +452,10 @@ public Action Event_BombDefused(Event eEvent, const char[] sName, bool bDontBroa
 	if (!IsClientInTeam(iClient, g_eGroup[iGroupId].iStats[GROUP_TEAM]))
 		return Plugin_Continue;
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_DEFUSE];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_DEFUSE_ROUND]) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_DEFUSE_ROUND]) {
 		SetClientCash(iClient, GetClientCash(iClient) + g_iValue);
 		if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_DEFUSE_INFO])
-			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za rozbrojenie bomby.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za rozbrojenie bomby.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 	}
 	return Plugin_Continue;
 }
@@ -481,10 +468,10 @@ public Action Event_HostageRescued(Event eEvent, const char[] sName, bool bDontB
 	if (!IsClientInTeam(iClient, g_eGroup[iGroupId].iStats[GROUP_TEAM]))
 		return Plugin_Continue;
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_HOSTAGE];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_HOSTAGE_ROUND]) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_HOSTAGE_ROUND]) {
 		SetClientCash(iClient, GetClientCash(iClient) + g_iValue);
 		if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_HOSTAGE_INFO])
-			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za uratowanie zakładnika.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za uratowanie zakładnika.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 	}
 	return Plugin_Continue;
 }
@@ -497,20 +484,20 @@ public Action Event_RoundMvp(Event eEvent, const char[] sName, bool bDontBroadca
 	if (!IsClientInTeam(iClient, g_eGroup[iGroupId].iStats[GROUP_TEAM]))
 		return Plugin_Continue;
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_MVP];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_MVP_ROUND]) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_MVP_ROUND]) {
 		SetClientCash(iClient, GetClientCash(iClient) + g_iValue);
 		if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_MVP_INFO])
-			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za bycie MVP.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za bycie MVP.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 	}
 	return Plugin_Continue;
 }
 
 public Action Event_RoundStart(Event eEvent, const char[] sName, bool bDontBroadcast) {
-	g_ePlugin.iRound = GetRoundNumber();
+	g_eCore.iRound = GetRoundNumber();
 }
 
 public Action Event_MatchRestart(Event eEvent, const char[] sName, bool bDontBroadcast) {
-	g_ePlugin.iRound = 0;
+	g_eCore.iRound = 0;
 }
 
 /* [ Hooks ] */
@@ -551,6 +538,15 @@ public Action OnPlayerRunCmd(int iClient, int &iButtons) {
 		iLastFlags[iClient] = iFlags;
 		iLastButtons[iClient] = iButtonsF;
 	}
+	if (g_eInfo[iClient].bAmmo[0]) {
+		if (iButtons & IN_ATTACK) {
+			int iWeapon = GetEntPropEnt(iClient, Prop_Send, "m_hActiveWeapon");
+			char sClass[32];
+			GetEdictClassname(iWeapon, sClass, sizeof(sClass));
+			if (IsValidWeapon(iWeapon) && !IsWeaponGrenade(sClass) && !IsWeaponKnife(sClass))
+				SetEntData(iWeapon, FindSendPropInfo("CBaseCombatWeapon", "m_iClip1"), 69);
+		}
+	}
 	return Plugin_Continue;
 }
 
@@ -565,7 +561,7 @@ public Action Timer_Respawn(Handle hTimer, int iClient) {
 	if (!g_bEnabled)return;
 	if (IsValidClient(iClient, true)) {
 		CS_RespawnPlayer(iClient);
-		CPrintToChat(iClient, "%s Jako {purple}%s{default} udało ci się odrodzić.", g_ePlugin.sChatTag, g_eGroup[g_eInfo[iClient].iGroupId].sName);
+		CPrintToChat(iClient, "%s Jako {purple}%s{default} udało ci się odrodzić.", g_eConfig.sChatTag, g_eGroup[g_eInfo[iClient].iGroupId].sName);
 		Call_StartForward(g_gfRespawned);
 		Call_PushCell(iClient);
 		Call_Finish();
@@ -575,7 +571,7 @@ public Action Timer_Respawn(Handle hTimer, int iClient) {
 /* [ Menus ] */
 Menu DisplayWeaponsMenu(int iClient, int iType) {
 	char sBuffer[256], sWeapon[32], sName[64], sFlags[16];
-	Format(sBuffer, sizeof(sBuffer), "[ ★ %s » %s ★ ]\n ", g_ePlugin.sMenuTag, g_eGroup[g_eInfo[iClient].iGroupId].sName);
+	Format(sBuffer, sizeof(sBuffer), "[ ★ %s » %s ★ ]\n ", g_eCore.sMenuTag, g_eGroup[g_eInfo[iClient].iGroupId].sName);
 	switch (iType) {
 		case PRIMARY: {
 			Format(sBuffer, sizeof(sBuffer), "%s\n➪ Wybierz karabin.", sBuffer);
@@ -584,7 +580,7 @@ Menu DisplayWeaponsMenu(int iClient, int iType) {
 			g_mMenu.SetTitle(sBuffer);
 			for (int i = 0; i < g_arWeapons[PRIMARY][0].Length; i++) {
 				g_arWeapons[PRIMARY][4].GetString(i, sFlags, sizeof(sFlags));
-				if (CheckFlags(iClient, sFlags) && IsClientInTeam(iClient, g_arWeapons[PRIMARY][3].Get(i))) {
+				if ((CheckFlags(iClient, sFlags) || (g_eInfo[iClient].iGroupId > 0 && CheckGroupFlags(g_eGroup[g_eInfo[iClient].iGroupId].sFlags, sFlags)) && IsClientInTeam(iClient, g_arWeapons[PRIMARY][3].Get(i)))) {
 					g_arWeapons[PRIMARY][1].GetString(i, sName, sizeof(sName));
 					g_arWeapons[PRIMARY][2].GetString(i, sWeapon, sizeof(sWeapon));
 					Format(sBuffer, sizeof(sBuffer), "» %s", sName);
@@ -602,7 +598,7 @@ Menu DisplayWeaponsMenu(int iClient, int iType) {
 			g_mMenu.SetTitle(sBuffer);
 			for (int i = 0; i < g_arWeapons[SECONDARY][0].Length; i++) {
 				g_arWeapons[SECONDARY][4].GetString(i, sFlags, sizeof(sFlags));
-				if (CheckFlags(iClient, sFlags) && IsClientInTeam(iClient, g_arWeapons[SECONDARY][3].Get(i))) {
+				if ((CheckFlags(iClient, sFlags) || (g_eInfo[iClient].iGroupId > 0 && CheckGroupFlags(g_eGroup[g_eInfo[iClient].iGroupId].sFlags, sFlags)) && IsClientInTeam(iClient, g_arWeapons[SECONDARY][3].Get(i)))) {
 					g_arWeapons[SECONDARY][1].GetString(i, sName, sizeof(sName));
 					g_arWeapons[SECONDARY][2].GetString(i, sWeapon, sizeof(sWeapon));
 					Format(sBuffer, sizeof(sBuffer), "» %s", sName);
@@ -620,9 +616,7 @@ Menu DisplayWeaponsMenu(int iClient, int iType) {
 			g_mMenu.SetTitle(sBuffer);
 			int iDraw = (!StrEqual(g_eInfo[iClient].sPrimary, "") && !StrEqual(g_eInfo[iClient].sSecondary, "")) ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED;
 			g_mMenu.AddItem("", "» Nowy zestaw broni");
-			g_mMenu.AddItem("", "» Ostatni zestaw broni", iDraw);
-			iDraw = (!StrEqual(g_eInfo[iClient].sPrimary, "") || !StrEqual(g_eInfo[iClient].sSecondary, "")) ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED;
-			g_mMenu.AddItem("", "» Usuń aktualny zestaw.\n ", iDraw);
+			g_mMenu.AddItem("", "» Poprzedni zestaw broni.\n ", iDraw);
 			return g_mMenu;
 		}
 		case GRENADES: {
@@ -630,7 +624,7 @@ Menu DisplayWeaponsMenu(int iClient, int iType) {
 			Format(sBuffer, sizeof(sBuffer), "%s\n---------------------------------------------", sBuffer);
 			g_mMenu = new Menu(Grenades_Handler);
 			g_mMenu.SetTitle(sBuffer);
-			for (int i = 0; i < g_ePlugin.iGrenadeSets; i++) {
+			for (int i = 0; i < g_eCore.iGrenadeSets; i++) {
 				if (CheckFlags(iClient, g_eGrenades[i].sFlags) && IsClientInTeam(iClient, g_eGrenades[i].iTeam)) {
 					Format(sBuffer, sizeof(sBuffer), "» %s", g_eGrenades[i].sName);
 					Format(sWeapon, sizeof(sWeapon), "%d", i);
@@ -648,15 +642,8 @@ Menu DisplayWeaponsMenu(int iClient, int iType) {
 public int Main_Handler(Menu mMenu, MenuAction maAction, int iClient, int iPosition) {
 	switch (maAction) {
 		case MenuAction_Select: {
-			switch (iPosition) {
-				case 0:DisplayWeaponsMenu(iClient, PRIMARY).Display(iClient, 15);
-				case 1:GiveLastWeapons(iClient);
-				case 2: {
-					g_eInfo[iClient].sPrimary = "";
-					g_eInfo[iClient].sSecondary = "";
-					DisplayWeaponsMenu(iClient, MAIN).Display(iClient, 15);
-				}
-			}
+			if (!iPosition)DisplayWeaponsMenu(iClient, PRIMARY).Display(iClient, MENU_TIME_FOREVER);
+			else GiveLastWeapons(iClient);
 		}
 		case MenuAction_End:delete mMenu;
 	}
@@ -667,13 +654,10 @@ public int Primary_Handler(Menu mMenu, MenuAction maAction, int iClient, int iPo
 		case MenuAction_Select: {
 			char sItem[32];
 			mMenu.GetItem(iPosition, sItem, sizeof(sItem));
-			bool bPicked = StrEqual(g_eInfo[iClient].sPrimary, "");
-			Format(g_eInfo[iClient].sPrimary, sizeof(g_eInfo[].sPrimary), sItem);
-			if (bPicked && IsPlayerAlive(iClient)) {
-				StripClientWeapons(iClient, CS_SLOT_PRIMARY);
-				GivePlayerItem(iClient, g_eInfo[iClient].sPrimary);
-			}
-			if (g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_SECONDARY_MENU] && g_ePlugin.iRound >= g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
+			g_eInfo[iClient].sPrimary = sItem;
+			StripClientWeapons(iClient, CS_SLOT_PRIMARY);
+			GivePlayerItem(iClient, sItem);
+			if (g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_SECONDARY_MENU] && g_eCore.iRound >= g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
 				DisplayWeaponsMenu(iClient, SECONDARY).Display(iClient, 15);
 		}
 		case MenuAction_End:delete mMenu;
@@ -685,12 +669,11 @@ public int Secondary_Handler(Menu mMenu, MenuAction maAction, int iClient, int i
 		case MenuAction_Select: {
 			char sItem[32];
 			mMenu.GetItem(iPosition, sItem, sizeof(sItem));
-			bool bPicked = StrEqual(g_eInfo[iClient].sSecondary, "");
-			Format(g_eInfo[iClient].sSecondary, sizeof(g_eInfo[].sSecondary), sItem);
-			if (bPicked && IsPlayerAlive(iClient)) {
-				StripClientWeapons(iClient, CS_SLOT_SECONDARY);
-				GivePlayerItem(iClient, g_eInfo[iClient].sSecondary);
-			}
+			g_eInfo[iClient].sSecondary = sItem;
+			StripClientWeapons(iClient, CS_SLOT_SECONDARY);
+			GivePlayerItem(iClient, sItem);
+			if (g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_GRENADES_MENU] && g_eCore.iRound >= g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_GRENADES_MENU_ROUND])
+				DisplayWeaponsMenu(iClient, GRENADES).Display(iClient, 15);
 		}
 		case MenuAction_End:delete mMenu;
 	}
@@ -701,8 +684,10 @@ public int Grenades_Handler(Menu mMenu, MenuAction maAction, int iClient, int iP
 		case MenuAction_Select: {
 			char sItem[32];
 			mMenu.GetItem(iPosition, sItem, sizeof(sItem));
-			g_eInfo[iClient].iGrenadeSet = StringToInt(sItem);
-			CPrintToChat(iClient, "%s Wybrany zestaw granatów: {lime}%s", g_ePlugin.sChatTag, g_eGrenades[g_eInfo[iClient].iGrenadeSet].sName);
+			int iGrenadeSet = StringToInt(sItem);
+			g_eInfo[iClient].iGrenadeSet = iGrenadeSet;
+			StripClientWeapons(iClient, CS_SLOT_GRENADE);
+			GivePlayerGrenades(iClient, iGrenadeSet);
 		}
 		case MenuAction_End:delete mMenu;
 	}
@@ -710,38 +695,41 @@ public int Grenades_Handler(Menu mMenu, MenuAction maAction, int iClient, int iP
 
 /* [ Helpers ] */
 void PreparePlayerSetup(int iClient) {
-	if (!IsValidClient(iClient) || !IsPlayerAlive(iClient) || !HasGroup(iClient) || !g_bEnabled || IsWarmup())return;
+	if (!IsValidClient(iClient) || !IsPlayerAlive(iClient) || !HasGroup(iClient) || !g_bEnabled)return;
 	int iGroupId = g_eInfo[iClient].iGroupId;
 	if (!IsClientInTeam(iClient, g_eGroup[iGroupId].iStats[GROUP_TEAM]))
 		return;
 	
+	if (g_eGroup[iGroupId].iStats[GROUP_UNLIMITED_PRIMARY_AMMO] && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_UNLIMITED_PRIMARY_AMMO_ROUND])g_eInfo[iClient].bAmmo[0] = true;
+	else g_eInfo[iClient].bAmmo[0] = false;
 	
-	if (g_eInfo[iClient].iGrenadeSet == -1)
-		GunMenu_Command(iClient, 0);
+	if (g_eGroup[iGroupId].iStats[GROUP_UNLIMITED_SECONDARY_AMMO] && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_UNLIMITED_SECONDARY_AMMO_ROUND])g_eInfo[iClient].bAmmo[1] = true;
+	else g_eInfo[iClient].bAmmo[1] = false;
+	
 	SetEntData(iClient, FindDataMapInfo(iClient, "m_iMaxHealth"), g_eGroup[iGroupId].iStats[GROUP_MAX_HP], 4, true);
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_SPAWN];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_SPAWN_ROUND])
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_SPAWN_ROUND])
 		SetClientHealth(iClient, GetClientHealth(iClient) + g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_SPAWN]);
 	
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_SPAWN];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_SPAWN_ROUND]) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_SPAWN_ROUND]) {
 		SetClientCash(iClient, GetClientCash(iClient) + g_iValue);
 		if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_MVP_INFO])
-			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} na start.", g_ePlugin.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} na start.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 	}
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_KEVLAR];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_KEVLAR_ROUND])
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_KEVLAR_ROUND])
 		SetClientKevlar(iClient, g_eGroup[iGroupId].iStats[GROUP_KEVLAR_AMOUNT]);
 	
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_HELMET];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_HELMET_ROUND])
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_HELMET_ROUND])
 		SetEntProp(iClient, Prop_Send, "m_bHasHelmet", 1);
 	
 	static int iAmmo[2];
 	int iMaxGrenades = FindConVar("ammo_grenade_limit_total").IntValue;
 	g_eInfo[iClient].iStats[CLIENT_GRENADES] = CountClientGrenades(iClient);
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_HE_NUM];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_HE_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_HE_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
 		iAmmo[0] = 0, iAmmo[1] = 0;
 		GetClientWeaponAmmo(iClient, "weapon_hegrenade", iAmmo[0], iAmmo[1]);
 		if (iAmmo[0] < g_iValue) {
@@ -750,7 +738,7 @@ void PreparePlayerSetup(int iClient) {
 		}
 	}
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_FLASH_NUM];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_FLASH_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_FLASH_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
 		iAmmo[0] = 0, iAmmo[1] = 0;
 		GetClientWeaponAmmo(iClient, "weapon_flashbang", iAmmo[0], iAmmo[1]);
 		if (iAmmo[0] < g_iValue) {
@@ -759,7 +747,7 @@ void PreparePlayerSetup(int iClient) {
 		}
 	}
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_SMOKE_NUM];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_SMOKE_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_SMOKE_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
 		iAmmo[0] = 0, iAmmo[1] = 0;
 		GetClientWeaponAmmo(iClient, "weapon_smokegrenade", iAmmo[0], iAmmo[1]);
 		if (iAmmo[0] < g_iValue) {
@@ -768,7 +756,7 @@ void PreparePlayerSetup(int iClient) {
 		}
 	}
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_MOLOTOV_NUM];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_MOLOTOV_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_MOLOTOV_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
 		iAmmo[0] = 0, iAmmo[1] = 0;
 		if (GetClientTeam(iClient) == CS_TEAM_CT) {
 			GetClientWeaponAmmo(iClient, "weapon_incgrenade", iAmmo[0], iAmmo[1]);
@@ -786,14 +774,14 @@ void PreparePlayerSetup(int iClient) {
 		}
 	}
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_HEALTHSHOT_NUM];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_HEALTHSHOT_ROUND]) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_HEALTHSHOT_ROUND]) {
 		iAmmo[0] = 0, iAmmo[1] = 0;
 		GetClientWeaponAmmo(iClient, "weapon_healthshot", iAmmo[0], iAmmo[1]);
 		if (iAmmo[0] < g_iValue)
 			GiveClientWeaponAndAmmo(iClient, "weapon_healthshot", g_iValue, g_iValue, g_iValue, g_iValue);
 	}
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_TA_NUM];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_TA_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_TA_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
 		iAmmo[0] = 0, iAmmo[1] = 0;
 		GetClientWeaponAmmo(iClient, "weapon_tagrenade", iAmmo[0], iAmmo[1]);
 		if (iAmmo[0] < g_iValue) {
@@ -802,7 +790,7 @@ void PreparePlayerSetup(int iClient) {
 		}
 	}
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_SNOWBALL_NUM];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_SNOWBALL_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_SNOWBALL_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
 		iAmmo[0] = 0, iAmmo[1] = 0;
 		GetClientWeaponAmmo(iClient, "weapon_snowball", iAmmo[0], iAmmo[1]);
 		if (iAmmo[0] < g_iValue) {
@@ -811,13 +799,13 @@ void PreparePlayerSetup(int iClient) {
 		}
 	}
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_SHIELD];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_SHIELD_ROUND]) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_SHIELD_ROUND]) {
 		if (!HasClientItem(iClient, "weapon_shield"))
 			GivePlayerItem(iClient, "weapon_shield");
 	}
 	
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_DECOY_NUM];
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_DECOY_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_DECOY_ROUND] && g_eInfo[iClient].iStats[CLIENT_GRENADES] < iMaxGrenades) {
 		iAmmo[0] = 0, iAmmo[1] = 0;
 		GetClientWeaponAmmo(iClient, "weapon_decoy", iAmmo[0], iAmmo[1]);
 		if (iAmmo[0] < g_iValue) {
@@ -827,15 +815,15 @@ void PreparePlayerSetup(int iClient) {
 	}
 	
 	g_fValue = g_eGroup[iGroupId].fStats[GROUP_GRAVITY];
-	if (g_fValue != 1.0 && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_GRAVITY_ROUND])
+	if (g_fValue != 1.0 && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_GRAVITY_ROUND])
 		SetEntityGravity(iClient, g_fValue);
 	
 	g_fValue = g_eGroup[iGroupId].fStats[GROUP_SPEED];
-	if (g_fValue != 1.0 && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_SPPED_ROUND])
+	if (g_fValue != 1.0 && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_SPPED_ROUND])
 		SetClientSpeed(iClient, g_fValue);
 	if (GetClientTeam(iClient) == CS_TEAM_CT) {
 		g_iValue = g_eGroup[iGroupId].iStats[GROUP_DEFUSER];
-		if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_DEFUSER_ROUND]) {
+		if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_DEFUSER_ROUND]) {
 			if (!GetEntProp(iClient, Prop_Send, "m_bHasDefuser"))
 				GivePlayerItem(iClient, "item_defuser");
 		}
@@ -843,42 +831,35 @@ void PreparePlayerSetup(int iClient) {
 	
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_HEAL_NUM];
 	g_eInfo[iClient].iStats[CLIENT_HEALS] = 0;
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_HEAL_ROUND])
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_HEAL_ROUND])
 		g_eInfo[iClient].iStats[CLIENT_HEALS] = g_iValue;
 	
-	/*if (g_eInfo[iClient].bGunMenu) {
-		if (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND] && g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
-			DisplayWeaponsMenu(iClient, MAIN).Display(iClient, 15);
-		else if (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND])
-			DisplayWeaponsMenu(iClient, PRIMARY).Display(iClient, 15);
-		else if (g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
-			DisplayWeaponsMenu(iClient, SECONDARY).Display(iClient, 15);
-		else if (g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU_ROUND])
-			DisplayWeaponsMenu(iClient, GRENADES).Display(iClient, 15);
-	}*/
-	GiveLastWeapons(iClient);
+	if (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND] && g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
+		DisplayWeaponsMenu(iClient, MAIN).Display(iClient, 15);
+	else if (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND])
+		DisplayWeaponsMenu(iClient, PRIMARY).Display(iClient, 15);
+	else if (g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
+		DisplayWeaponsMenu(iClient, SECONDARY).Display(iClient, 15);
+	else if (g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU] && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU_ROUND])
+		DisplayWeaponsMenu(iClient, GRENADES).Display(iClient, 15);
 	
-	/*if (g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU] && g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU_ROUND] <= g_ePlugin.iRound && g_eInfo[iClient].iGrenadeSet != -1) {
-		StripClientWeapons(iClient, CS_SLOT_GRENADE);
-		GivePlayerGrenades(iClient, g_eInfo[iClient].iGrenadeSet);
-	}*/
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_VISIBILITY];
-	if (g_iValue != 255 && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_VISIBILITY_ROUND])
+	if (g_iValue != 255 && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_VISIBILITY_ROUND])
 		SetClientVisibility(iClient, g_iValue);
 	
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_DAMAGE_GIVEN];
 	g_eInfo[iClient].iStats[CLIENT_DAMAGE_GIVE] = 100;
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_DAMAGE_GIVEN_ROUND])
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_DAMAGE_GIVEN_ROUND])
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_GIVE] = g_iValue;
 	
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_DAMAGE_TAKEN];
 	g_eInfo[iClient].iStats[CLIENT_DAMAGE_TAKE] = 100;
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_DAMAGE_TAKEN_ROUND])
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_DAMAGE_TAKEN_ROUND])
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_TAKE] = g_iValue;
 	
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_DAMAGE_FALL];
 	g_eInfo[iClient].iStats[CLIENT_DAMAGE_FALL] = 100;
-	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_DAMAGE_FALL_ROUND])
+	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_DAMAGE_FALL_ROUND])
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_FALL] = g_iValue;
 	
 	if (!StrEqual(g_eGroup[iGroupId].sTableTag, ""))
@@ -913,11 +894,11 @@ void LoadConfig() {
 		}
 	}
 	if (kv.JumpToKey("Ustawienia")) {
-		g_ePlugin.iHealType = kv.GetNum("Heal_Type");
-		g_ePlugin.iDeathmatchMode = kv.GetNum("Deathmatch_Mode");
-		g_ePlugin.iDisableBuyHelemet = kv.GetNum("Disable_Buy_Helmet_First_Round");
-		kv.GetString("Menu_Tag", g_ePlugin.sMenuTag, sizeof(g_ePlugin.sMenuTag));
-		kv.GetString("Chat_Tag", g_ePlugin.sChatTag, sizeof(g_ePlugin.sChatTag));
+		g_eCore.iHealType = kv.GetNum("Heal_Type");
+		g_eCore.iDeathmatchMode = kv.GetNum("Deathmatch_Mode");
+		g_eCore.iDisableBuyHelemet = kv.GetNum("Disable_Buy_Helmet_First_Round");
+		kv.GetString("Menu_Tag", g_eCore.sMenuTag, sizeof(g_eCore.sMenuTag));
+		kv.GetString("Chat_Tag", g_eConfig.sChatTag, sizeof(g_eConfig.sChatTag));
 		kv.GoBack();
 	}
 	if (kv.JumpToKey("Menu Broni")) {
@@ -959,18 +940,18 @@ void LoadConfig() {
 		kv.GoBack();
 		if (kv.JumpToKey("Granaty")) {
 			kv.GotoFirstSubKey();
-			g_ePlugin.iGrenadeSets = 0;
+			g_eCore.iGrenadeSets = 0;
 			do {
-				kv.GetSectionName(g_eGrenades[g_ePlugin.iGrenadeSets].sName, sizeof(g_eGrenades[].sName));
-				kv.GetString("Flags", g_eGrenades[g_ePlugin.iGrenadeSets].sFlags, sizeof(g_eGrenades[].sFlags));
-				g_eGrenades[g_ePlugin.iGrenadeSets].iTeam = kv.GetNum("Team");
-				g_eGrenades[g_ePlugin.iGrenadeSets].iAmount[SET_HE_NUM] = kv.GetNum("He_Amount");
-				g_eGrenades[g_ePlugin.iGrenadeSets].iAmount[SET_SMOKE_NUM] = kv.GetNum("Smoke_Amount");
-				g_eGrenades[g_ePlugin.iGrenadeSets].iAmount[SET_FLASH_NUM] = kv.GetNum("Flashbang_Amount");
-				g_eGrenades[g_ePlugin.iGrenadeSets].iAmount[SET_DECOY_NUM] = kv.GetNum("Decoy_Amount");
-				g_eGrenades[g_ePlugin.iGrenadeSets].iAmount[SET_MOLOTOV_NUM] = kv.GetNum("Molotov_Amount");
-				g_eGrenades[g_ePlugin.iGrenadeSets].iAmount[SET_TAGRENADE_NUM] = kv.GetNum("TaGrenade_Amount");
-				g_ePlugin.iGrenadeSets++;
+				kv.GetSectionName(g_eGrenades[g_eCore.iGrenadeSets].sName, sizeof(g_eGrenades[].sName));
+				kv.GetString("Flags", g_eGrenades[g_eCore.iGrenadeSets].sFlags, sizeof(g_eGrenades[].sFlags));
+				g_eGrenades[g_eCore.iGrenadeSets].iTeam = kv.GetNum("Team");
+				g_eGrenades[g_eCore.iGrenadeSets].iAmount[SET_HE_NUM] = kv.GetNum("He_Amount");
+				g_eGrenades[g_eCore.iGrenadeSets].iAmount[SET_SMOKE_NUM] = kv.GetNum("Smoke_Amount");
+				g_eGrenades[g_eCore.iGrenadeSets].iAmount[SET_FLASH_NUM] = kv.GetNum("Flashbang_Amount");
+				g_eGrenades[g_eCore.iGrenadeSets].iAmount[SET_DECOY_NUM] = kv.GetNum("Decoy_Amount");
+				g_eGrenades[g_eCore.iGrenadeSets].iAmount[SET_MOLOTOV_NUM] = kv.GetNum("Molotov_Amount");
+				g_eGrenades[g_eCore.iGrenadeSets].iAmount[SET_TAGRENADE_NUM] = kv.GetNum("TaGrenade_Amount");
+				g_eCore.iGrenadeSets++;
 			}
 			while (kv.GotoNextKey());
 			kv.GoBack();
@@ -980,31 +961,31 @@ void LoadConfig() {
 	kv.GoBack();
 	if (kv.JumpToKey("Grupy")) {
 		kv.GotoFirstSubKey();
-		g_ePlugin.iGroups = 0;
+		g_eCore.iGroups = 0;
 		int iField = 0;
 		do {
 			iField = 0;
-			g_ePlugin.iGroups++;
-			g_eGroup[g_ePlugin.iGroups].iStats[GROUP_INDEX] = g_ePlugin.iGroups;
+			g_eCore.iGroups++;
+			g_eGroup[g_eCore.iGroups].iStats[GROUP_INDEX] = g_eCore.iGroups;
 			kv.GetSectionName(sName, sizeof(sName));
-			g_eGroup[g_ePlugin.iGroups].sName = sName;
-			kv.GetString("Flags", g_eGroup[g_ePlugin.iGroups].sFlags, 16);
+			g_eGroup[g_eCore.iGroups].sName = sName;
+			kv.GetString("Flags", g_eGroup[g_eCore.iGroups].sFlags, 16);
 			for (int i = 0; i < sizeof(g_sConVars); i++) {
 				if (i == 0 || i == 3 || i == 4 || i == 88 || i == 90 || i == 111 || i == 112 || i == 113 || i == 114 || i == 118 || i == 119)
 					continue;
-				g_eGroup[g_ePlugin.iGroups].iStats[iField] = kv.GetNum(g_sConVars[i][0]);
+				g_eGroup[g_eCore.iGroups].iStats[iField] = kv.GetNum(g_sConVars[i][0]);
 				iField++;
 			}
-			g_eGroup[g_ePlugin.iGroups].fStats[GROUP_GRAVITY] = kv.GetFloat("Gravity_Amount", 1.0);
-			g_eGroup[g_ePlugin.iGroups].fStats[GROUP_SPEED] = kv.GetFloat("Speed_Amount", 1.0);
-			g_eGroup[g_ePlugin.iGroups].fStats[GROUP_HUD_POSITION_X] = kv.GetFloat("Hud_Position_X");
-			g_eGroup[g_ePlugin.iGroups].fStats[GROUP_HUD_POSITION_Y] = kv.GetFloat("Hud_Position_Y");
-			kv.GetString("Welcome_Hud", g_eGroup[g_ePlugin.iGroups].sWelcomeHud, 256);
-			kv.GetString("Goodbye_Hud", g_eGroup[g_ePlugin.iGroups].sGoodbyeHud, 256);
-			kv.GetString("Welcome_Chat", g_eGroup[g_ePlugin.iGroups].sWelcomeChat, 256);
-			kv.GetString("Goodbye_Chat", g_eGroup[g_ePlugin.iGroups].sGoodbyeChat, 256);
-			kv.GetString("Table_Tag", g_eGroup[g_ePlugin.iGroups].sTableTag, 32);
-			kv.GetString("Chat_Tag", g_eGroup[g_ePlugin.iGroups].sChatTag, 64);
+			g_eGroup[g_eCore.iGroups].fStats[GROUP_GRAVITY] = kv.GetFloat("Gravity_Amount", 1.0);
+			g_eGroup[g_eCore.iGroups].fStats[GROUP_SPEED] = kv.GetFloat("Speed_Amount", 1.0);
+			g_eGroup[g_eCore.iGroups].fStats[GROUP_HUD_POSITION_X] = kv.GetFloat("Hud_Position_X");
+			g_eGroup[g_eCore.iGroups].fStats[GROUP_HUD_POSITION_Y] = kv.GetFloat("Hud_Position_Y");
+			kv.GetString("Welcome_Hud", g_eGroup[g_eCore.iGroups].sWelcomeHud, 256);
+			kv.GetString("Goodbye_Hud", g_eGroup[g_eCore.iGroups].sGoodbyeHud, 256);
+			kv.GetString("Welcome_Chat", g_eGroup[g_eCore.iGroups].sWelcomeChat, 256);
+			kv.GetString("Goodbye_Chat", g_eGroup[g_eCore.iGroups].sGoodbyeChat, 256);
+			kv.GetString("Table_Tag", g_eGroup[g_eCore.iGroups].sTableTag, 32);
+			kv.GetString("Chat_Tag", g_eGroup[g_eCore.iGroups].sChatTag, 64);
 		}
 		while (kv.GotoNextKey());
 		kv.GoBack();
@@ -1357,7 +1338,7 @@ int GetRoundNumber() {
 
 void LoadClientGroup(int iClient, bool bWelcome = false) {
 	g_eInfo[iClient].iGroupId = 0;
-	for (int i = 1; i <= g_ePlugin.iGroups; i++) {
+	for (int i = 1; i <= g_eCore.iGroups; i++) {
 		if (CheckFlags(iClient, g_eGroup[i].sFlags) && (!g_eGroup[i].iStats[GROUP_TEAM] || GetClientTeam(iClient) == g_eGroup[i].iStats[GROUP_TEAM])) {
 			g_eInfo[iClient].iGroupId = i;
 			PrintToConsole(iClient, "Nadana grupa: %s", g_eGroup[g_eInfo[iClient].iGroupId].sName);
@@ -1386,7 +1367,7 @@ void ShowConnectInfo(int iClient) {
 		ReplaceString(sBuffer, sizeof(sBuffer), "{GROUP}", g_eGroup[iGroupId].sName);
 		SetHudTextParams(g_eGroup[iGroupId].fStats[GROUP_HUD_POSITION_X], g_eGroup[iGroupId].fStats[GROUP_HUD_POSITION_Y], 5.0, 
 			g_eGroup[iGroupId].iStats[GROUP_HUD_RED], g_eGroup[iGroupId].iStats[GROUP_HUD_GREEN], g_eGroup[iGroupId].iStats[GROUP_HUD_BLUE], 255, 1);
-		LoopClients(i)
+		LoopValidClients(i)
 		ShowSyncHudText(i, g_hHud, sBuffer);
 		
 	}
@@ -1416,7 +1397,7 @@ void ShowDisconnectInfo(int iClient) {
 		ReplaceString(sBuffer, sizeof(sBuffer), "{GROUP}", g_eGroup[iGroupId].sName);
 		SetHudTextParams(g_eGroup[iGroupId].fStats[GROUP_HUD_POSITION_X], g_eGroup[iGroupId].fStats[GROUP_HUD_POSITION_Y], 5.0, 
 			g_eGroup[iGroupId].iStats[GROUP_HUD_RED], g_eGroup[iGroupId].iStats[GROUP_HUD_GREEN], g_eGroup[iGroupId].iStats[GROUP_HUD_BLUE], 255);
-		LoopClients(i)
+		LoopValidClients(i)
 		ShowSyncHudText(i, g_hHud, sBuffer);
 	}
 	if (!StrEqual(g_eGroup[iGroupId].sGoodbyeChat, "")) {
@@ -1437,24 +1418,17 @@ void ShowDisconnectInfo(int iClient) {
 }
 
 void GiveLastWeapons(int iClient) {
-	int iGroupId = g_eInfo[iClient].iGroupId;
-	if (!HasClientItemOnSlot(iClient, CS_SLOT_PRIMARY)) {
-		if (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND] <= g_ePlugin.iRound && !StrEqual(g_eInfo[iClient].sPrimary, "")) {
-			StripClientWeapons(iClient, CS_SLOT_PRIMARY);
-			GivePlayerItem(iClient, g_eInfo[iClient].sPrimary);
-		}
+	if (!StrEqual(g_eInfo[iClient].sPrimary, "")) {
+		StripClientWeapons(iClient, CS_SLOT_PRIMARY);
+		GivePlayerItem(iClient, g_eInfo[iClient].sPrimary);
 	}
-	if (!HasClientItemOnSlot(iClient, CS_SLOT_SECONDARY)) {
-		if (g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND] <= g_ePlugin.iRound && !StrEqual(g_eInfo[iClient].sSecondary, "")) {
-			StripClientWeapons(iClient, CS_SLOT_SECONDARY);
-			GivePlayerItem(iClient, g_eInfo[iClient].sSecondary);
-		}
+	if (!StrEqual(g_eInfo[iClient].sSecondary, "")) {
+		StripClientWeapons(iClient, CS_SLOT_SECONDARY);
+		GivePlayerItem(iClient, g_eInfo[iClient].sSecondary);
 	}
-	if (!HasClientItemOnSlot(iClient, CS_SLOT_GRENADE)) {
-		if (g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU] && g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU_ROUND] <= g_ePlugin.iRound && g_eInfo[iClient].iGrenadeSet != -1) {
-			StripClientWeapons(iClient, CS_SLOT_GRENADE);
-			GivePlayerGrenades(iClient, g_eInfo[iClient].iGrenadeSet);
-		}
+	if (g_eInfo[iClient].iGrenadeSet != -1) {
+		StripClientWeapons(iClient, CS_SLOT_GRENADE);
+		GivePlayerGrenades(iClient, g_eInfo[iClient].iGrenadeSet);
 	}
 }
 
@@ -1482,17 +1456,31 @@ bool CheckFlags(int iClient, char[] sFlags) {
 	if (StrEqual(sFlags, ""))return true;
 	if (GetUserFlagBits(iClient) & ADMFLAG_ROOT)return true;
 	int iCount = CountCharacters(sFlags);
-	int iAccess = 0;
-	char sFlag[16];
-	for (int i = 0; i < iCount; i++) {
-		Format(sFlag, sizeof(sFlag), "%c", sFlags[i]);
-		if (GetUserFlagBits(iClient) & ReadFlagString(sFlag))
-			iAccess++;
+	if (iCount > 1) {
+		int iAccess = 0;
+		char sFlag[16];
+		for (int i = 0; i < iCount; i++) {
+			Format(sFlag, sizeof(sFlag), "%c", sFlags[i]);
+			if (GetUserFlagBits(iClient) & ReadFlagString(sFlag))
+				iAccess++;
+		}
+		if (iAccess == iCount)return true;
 	}
-	if (iAccess == iCount)
-		return true;
 	if (GetUserFlagBits(iClient) & ReadFlagString(sFlags))return true;
 	if (StrEqual(sFlags, ""))return true;
+	return false;
+}
+
+bool CheckGroupFlags(char[] sGroupFlags, char[] sFlags) {
+	if (StrEqual(sFlags, "") || StrContains(sGroupFlags, "z", false) != -1)return true;
+	int iCount = CountCharacters(sFlags), iAccess = 0;
+	char sFlag[2];
+	for (int i = 0; i < iCount; i++) {
+		Format(sFlag, sizeof(sFlag), "%c", sFlags[i]);
+		if (StrContains(sGroupFlags, sFlag, false) != -1)
+			iAccess++;
+	}
+	if (iAccess == iCount)return true;
 	return false;
 }
 
@@ -1553,7 +1541,7 @@ int CountClientGrenades(int iClient) {
 }
 
 int GetGroupIdByName(char[] sName) {
-	for (int i = 1; i <= g_ePlugin.iGroups; i++) {
+	for (int i = 1; i <= g_eCore.iGroups; i++) {
 		if (StrEqual(g_eGroup[i].sName, sName))
 			return i;
 	}
@@ -1624,26 +1612,20 @@ void GivePlayerGrenades(int iClient, int iSetId) {
 	}
 }
 
-
-bool HasClientItemOnSlot(int iClient, int iSlot) {
-	if (GetPlayerWeaponSlot(iClient, iSlot) != -1)return true;
-	return false;
-}
-
 /* [ Chat Message ] */
 #define MAXLENGTH_NAME		128
 #define MAXLENGTH_MESSAGE	128
 public Action CP_OnChatMessage(int &iAuthor, ArrayList arRecipients, char[] sFlagString, char[] sName, char[] sMessage, bool &bProcessColors, bool &bRemoveColors) {
-	if (!g_ePlugin.bChatSystem[0] || !IsValidClient(iAuthor) || !HasGroup(iAuthor) || StrEqual(g_eGroup[g_eInfo[iAuthor].iGroupId].sChatTag, ""))
+	if (!g_eCore.bChatSystem[0] || !IsValidClient(iAuthor) || !HasGroup(iAuthor) || g_bShopChatModule)
 		return Plugin_Continue;
+	
 	Format(sName, MAXLENGTH_NAME, " %s\x03 %s", g_eGroup[g_eInfo[iAuthor].iGroupId].sChatTag, sName);
-	Format(sMessage, MAXLENGTH_MESSAGE, "%s", sMessage);
 	CFormatColor(sName, MAXLENGTH_NAME);
 	return Plugin_Changed;
 }
 
 public Action OnChatMessage(int &iAuthor, Handle hRecipients, char[] sName, char[] sMessage) {
-	if (!g_ePlugin.bChatSystem[1] || !IsValidClient(iAuthor) || !HasGroup(iAuthor) || StrEqual(g_eGroup[g_eInfo[iAuthor].iGroupId].sChatTag, ""))
+	if (!g_eCore.bChatSystem[1] || !IsValidClient(iAuthor) || !HasGroup(iAuthor) || g_bShopChatModule)
 		return Plugin_Continue;
 	Format(sName, MAXLENGTH_NAME, " %s \x03 %s", g_eGroup[g_eInfo[iAuthor].iGroupId].sChatTag, sName);
 	Format(sMessage, MAXLENGTH_MESSAGE, "%s", sMessage);
@@ -1663,30 +1645,50 @@ public APLRes AskPluginLoad2(Handle hMySelf, bool bLate, char[] sError, int iErr
 	CreateNative("pVip_SetPluginStatus", Native_SetPluginStatus);
 	CreateNative("pVip_GetPluginStatus", Native_GetPluginStatus);
 	CreateNative("pVip_GetGroupIdByFlags", Native_GetGroupIdByFlags);
+	CreateNative("pVip_AutoAssignGroup", Native_AutoAssignGroup);
+	CreateNative("pVip_GetGroupChatTag", Native_GetGroupChatTag);
+	
+	MarkNativeAsOptional("pVip_GetGroupsCount");
+	MarkNativeAsOptional("pVip_GetGroupInfo");
+	MarkNativeAsOptional("pVip_GetClientInfo");
+	MarkNativeAsOptional("pVip_GetPluginInfo");
+	MarkNativeAsOptional("pVip_SetClientGroup");
+	MarkNativeAsOptional("pVip_GetGroupIdByName");
+	MarkNativeAsOptional("pVip_PreparePlayerSetup");
+	MarkNativeAsOptional("pVip_SetPluginStatus");
+	MarkNativeAsOptional("pVip_GetPluginStatus");
+	MarkNativeAsOptional("pVip_AutoAssignGroup");
+	MarkNativeAsOptional("pVip_GetGroupIdByFlags");
 	RegPluginLibrary("pVip-Core");
 	return APLRes_Success;
 }
 
 public void OnLibraryAdded(const char[] sName) {
 	if (StrEqual(sName, "chat-processor")) {
-		g_ePlugin.bChatSystem[0] = true;
+		g_eCore.bChatSystem[0] = true;
 		PrintToServer("✔ pVip Core | Wykryto Chat-Processor by Drixevel.");
 		return;
 	}
 	else if (StrEqual(sName, "scp")) {
-		g_ePlugin.bChatSystem[1] = true;
+		g_eCore.bChatSystem[1] = true;
 		PrintToServer("✔ pVip Core | Wykryto Simple Chat Processor by Mini.");
+		return;
+	}
+	else if (StrEqual(sName, "pShop-Chat")) {
+		g_bShopChatModule = true;
+		PrintToServer("✔ pVip Core | Wykryto sklep by Pawel.");
 		return;
 	}
 }
 
 public void OnLibraryRemoved(const char[] sName) {
-	if (StrEqual(sName, "chat-processor"))g_ePlugin.bChatSystem[0] = false;
-	else if (StrEqual(sName, "scp"))g_ePlugin.bChatSystem[1] = false;
+	if (StrEqual(sName, "chat-processor"))g_eCore.bChatSystem[0] = false;
+	else if (StrEqual(sName, "scp"))g_eCore.bChatSystem[1] = false;
+	else if (StrEqual(sName, "pShop-Chat"))g_bShopChatModule = false;
 }
 
 public int Native_GetGroupsCount(Handle hPlugin, int iNumParams) {
-	return g_ePlugin.iGroups;
+	return g_eCore.iGroups;
 }
 
 public int Native_GetGroupInfo(Handle hPlugin, int iNumParams) {
@@ -1703,7 +1705,7 @@ public int Native_GetClientInfo(Handle hPlugin, int iNumParams) {
 }
 
 public int Native_GetPluginInfo(Handle hPlugin, int iNumParams) {
-	SetNativeArray(1, g_ePlugin, sizeof(g_ePlugin));
+	SetNativeArray(1, g_eCore, sizeof(g_eCore));
 }
 
 public int Native_SetClientGroup(Handle hPlugin, int iNumParams) {
@@ -1742,7 +1744,7 @@ public int Native_GetGroupIdByFlags(Handle hPlugin, int iNumParams) {
 	char sFlags[16];
 	GetNativeString(1, sFlags, sizeof(sFlags));
 	int iTeam = GetNativeCell(2);
-	for (int i = 1; i <= g_ePlugin.iGroups; i++) {
+	for (int i = 1; i <= g_eCore.iGroups; i++) {
 		if (StrEqual(g_eGroup[i].sFlags, sFlags)) {
 			if (iTeam != 0 && g_eGroup[i].iStats[GROUP_TEAM] == iTeam)
 				return i;
@@ -1750,4 +1752,17 @@ public int Native_GetGroupIdByFlags(Handle hPlugin, int iNumParams) {
 		}
 	}
 	return -1;
+}
+
+public int Native_AutoAssignGroup(Handle hPlugin, int iNumParams) {
+	int iClient = GetNativeCell(1);
+	if (IsValidClient(iClient)) {
+		LoadClientGroup(iClient);
+		return 1;
+	}
+	return 0;
+}
+
+public int Native_GetGroupChatTag(Handle hPlugin, int iNumParams) {
+	SetNativeString(2, g_eGroup[GetNativeCell(1)].sChatTag, sizeof(g_eGroup[].sChatTag));
 } 
