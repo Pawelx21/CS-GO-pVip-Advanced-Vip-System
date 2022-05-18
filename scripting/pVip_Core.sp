@@ -7,9 +7,6 @@
 *	1.0.3 - Poprawa nadawania grupy
 *	1.0.4 - Dodanie nativów do włączania/wyłączania działania systemu oraz pobierania stanu jego działania.
 *	1.0.5 - Dodano zestawy granatów do menu broni, dodatkowe zabezpieczenia, możliwość włączenia/wyłączenia double jumpa, możliwość tworzenia grup dla zwykłych graczy (brak flag)
-*	1.0.6 - Dodano kompatybilność z pShopem.
-*	1.0.7 - Dodano nativ, który wyszukje ID grupy po jego flagach oraz drużynie.
-*	1.0.8 - Poprawiono nadawanie grup dla graczy.
 *
 ********************************** [ ChangeLog ] *******************************/
 
@@ -26,17 +23,13 @@
 #pragma semicolon		1
 
 /* [ Defines ] */
-#define LoopValidClients(%1)		for(int %1 = 1; %1 < MaxClients; %1++) if(IsValidClient(%1))
+#define LoopClients(%1)		for(int %1 = 1; %1 < MaxClients; %1++) if(IsValidClient(%1))
 #define MAX_GROUPS			16
 #define MAX_GRENADES_SETS	10
 #define PRIMARY				0
 #define SECONDARY			1
 #define MAIN				2
 #define GRENADES			3
-#define TAG					0
-#define COLOR				1
-#define NAME				2
-#define MESSAGE				3
 
 /* [ Global Forwards ] */
 GlobalForward g_gfSpawn;
@@ -89,7 +82,6 @@ char g_sConVars[][][] = {
 
 /* [ Booleans ] */
 bool g_bEnabled = true;
-bool g_bShopSystem = false;
 
 /* [ Menus ] */
 Menu g_mMenu;
@@ -99,7 +91,7 @@ public Plugin myinfo = {
 	name = "[CS:GO] Pawel - [ pVip ]", 
 	author = "Pawel", 
 	description = "Rozbudowany system VIP na serwery CS:GO by Paweł.", 
-	version = "1.0.8", 
+	version = "1.0.5", 
 	url = "https://steamcommunity.com/id/pawelsteam"
 };
 
@@ -112,6 +104,8 @@ public void OnPluginStart() {
 	/* [ Commands ] */
 	RegConsoleCmd("sm_heal", Heal_Command);
 	RegConsoleCmd("sm_dj", DoubleJump_Command);
+	RegConsoleCmd("sm_vipmenu", VipMenu_Command);
+	RegConsoleCmd("sm_gunmenu", GunMenu_Command);
 	
 	/* [ Events ] */
 	HookEvent("weapon_reload", Event_WeaponReload);
@@ -140,7 +134,7 @@ public void OnPluginStart() {
 	CreateArrays();
 	
 	/* [ Late Load ] */
-	LoopValidClients(i)
+	LoopClients(i)
 	OnClientPostAdminCheck(i);
 }
 
@@ -149,7 +143,8 @@ public void OnConfigsExecuted() {
 	LoadConfig();
 }
 
-public void OnAllPluginsLoaded() {
+public void OnMapStart() {
+	g_bEnabled = true;
 	g_ePlugin.bChatSystem[0] = LibraryExists("chat-processor");
 	if (g_ePlugin.bChatSystem[0]) {
 		PrintToServer("✔ pVip Core | Wykryto Chat-Processor by Drixevel.");
@@ -160,15 +155,6 @@ public void OnAllPluginsLoaded() {
 		PrintToServer("✔ pVip Core | Wykryto Simple Chat Processor by Mini.");
 		return;
 	}
-	g_bShopSystem = LibraryExists("pShop");
-	if (g_bShopSystem) {
-		PrintToServer("✔ pShop | Wykryto sklep by Pawel.");
-		return;
-	}
-}
-
-public void OnMapStart() {
-	g_bEnabled = true;
 	g_ePlugin.iGroups = 0;
 }
 
@@ -193,6 +179,63 @@ public void OnMapEnd() {
 }
 
 /* [ Commands ] */
+public Action VipMenu_Command(int iClient, int iArgs) {
+	if (HasGroup(iClient) && !IsWarmup())
+		DisplayVipMenu(iClient).Display(iClient, MENU_TIME_FOREVER);
+	return Plugin_Handled;
+}
+
+public Action GunMenu_Command(int iClient, int iArgs) {
+	if (HasGroup(iClient) && !IsWarmup())
+		if ((g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_PRIMARY_MENU] && g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND] <= g_ePlugin.iRound)
+		 && (g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_SECONDARY_MENU] && g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND] <= g_ePlugin.iRound))
+	DisplayWeaponsMenu(iClient, MAIN).Display(iClient, 15);
+	return Plugin_Handled;
+}
+
+
+Menu DisplayVipMenu(int iClient) {
+	char sBuffer[256];
+	Format(sBuffer, sizeof(sBuffer), "[ ★ %s » %s ★ ]\n ", g_ePlugin.sMenuTag, g_eGroup[g_eInfo[iClient].iGroupId].sName);
+	Format(sBuffer, sizeof(sBuffer), "%s\n➪ Wybierz co chcesz zrobić?", sBuffer);
+	Format(sBuffer, sizeof(sBuffer), "%s\n---------------------------------------------", sBuffer);
+	g_mMenu = new Menu(VipMenu_Handler);
+	g_mMenu.SetTitle(sBuffer);
+	int iGroupId = g_eInfo[iClient].iGroupId;
+	
+	int iDrawtype = g_eGroup[iGroupId].iStats[GROUP_DOUBLE_JUMP] ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED;
+	Format(sBuffer, sizeof(sBuffer), "» %s Double Jumpa.", g_eInfo[iClient].bDoubleJump ? "Wyłącz":"Włącz");
+	g_mMenu.AddItem("", sBuffer, iDrawtype);
+	
+	iDrawtype = g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU] && g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU_ROUND] <= g_ePlugin.iRound ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED;
+	g_mMenu.AddItem("", "» Wybierz zestaw granatów.", iDrawtype);
+	
+	iDrawtype = (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND] <= g_ePlugin.iRound && g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND] <= g_ePlugin.iRound) ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED;
+	g_mMenu.AddItem("", "» Wybierz zestaw broni [!gunmenu]", iDrawtype);
+	return g_mMenu;
+}
+
+public int VipMenu_Handler(Menu mMenu, MenuAction maAction, int iClient, int iPosition) {
+	switch (maAction) {
+		case MenuAction_Select: {
+			switch (iPosition) {
+				case 0: {
+					g_eInfo[iClient].bDoubleJump = g_eInfo[iClient].bDoubleJump ? false:true;
+					CPrintToChat(iClient, "%s Double Jump został %s{default}.", g_ePlugin.sChatTag, g_eInfo[iClient].bDoubleJump ? "{lime}włączony":"{lightred}wyłączony");
+					DisplayVipMenu(iClient).Display(iClient, MENU_TIME_FOREVER);
+				}
+				case 1: {
+					DisplayWeaponsMenu(iClient, GRENADES).Display(iClient, 15);
+				}
+				case 2: {
+					DisplayWeaponsMenu(iClient, MAIN).Display(iClient, 15);
+				}
+			}
+		}
+		case MenuAction_End:delete mMenu;
+	}
+}
+
 public Action DoubleJump_Command(int iClient, int iArgs) {
 	if (HasGroup(iClient) && g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_DOUBLE_JUMP] && g_bEnabled) {
 		g_eInfo[iClient].bDoubleJump = g_eInfo[iClient].bDoubleJump ? false:true;
@@ -250,10 +293,6 @@ public Action Event_PlayerSpawn(Event eEvent, const char[] sName, bool bDontBroa
 	if (!g_bEnabled)return Plugin_Continue;
 	int iClient = GetClientOfUserId(eEvent.GetInt("userid"));
 	if (IsValidClient(iClient)) {
-		if (g_ePlugin.iRound == 1) {
-			g_eInfo[iClient].sPrimary = "";
-			g_eInfo[iClient].sSecondary = "";
-		}
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_GIVE] = 100;
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_TAKE] = 100;
 		g_eInfo[iClient].iStats[CLIENT_DAMAGE_FALL] = 100;
@@ -581,7 +620,9 @@ Menu DisplayWeaponsMenu(int iClient, int iType) {
 			g_mMenu.SetTitle(sBuffer);
 			int iDraw = (!StrEqual(g_eInfo[iClient].sPrimary, "") && !StrEqual(g_eInfo[iClient].sSecondary, "")) ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED;
 			g_mMenu.AddItem("", "» Nowy zestaw broni");
-			g_mMenu.AddItem("", "» Poprzedni zestaw broni.\n ", iDraw);
+			g_mMenu.AddItem("", "» Ostatni zestaw broni", iDraw);
+			iDraw = (!StrEqual(g_eInfo[iClient].sPrimary, "") || !StrEqual(g_eInfo[iClient].sSecondary, "")) ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED;
+			g_mMenu.AddItem("", "» Usuń aktualny zestaw.\n ", iDraw);
 			return g_mMenu;
 		}
 		case GRENADES: {
@@ -607,8 +648,15 @@ Menu DisplayWeaponsMenu(int iClient, int iType) {
 public int Main_Handler(Menu mMenu, MenuAction maAction, int iClient, int iPosition) {
 	switch (maAction) {
 		case MenuAction_Select: {
-			if (!iPosition)DisplayWeaponsMenu(iClient, PRIMARY).Display(iClient, MENU_TIME_FOREVER);
-			else GiveLastWeapons(iClient);
+			switch (iPosition) {
+				case 0:DisplayWeaponsMenu(iClient, PRIMARY).Display(iClient, 15);
+				case 1:GiveLastWeapons(iClient);
+				case 2: {
+					g_eInfo[iClient].sPrimary = "";
+					g_eInfo[iClient].sSecondary = "";
+					DisplayWeaponsMenu(iClient, MAIN).Display(iClient, 15);
+				}
+			}
 		}
 		case MenuAction_End:delete mMenu;
 	}
@@ -619,9 +667,12 @@ public int Primary_Handler(Menu mMenu, MenuAction maAction, int iClient, int iPo
 		case MenuAction_Select: {
 			char sItem[32];
 			mMenu.GetItem(iPosition, sItem, sizeof(sItem));
-			g_eInfo[iClient].sPrimary = sItem;
-			StripClientWeapons(iClient, CS_SLOT_PRIMARY);
-			GivePlayerItem(iClient, sItem);
+			bool bPicked = StrEqual(g_eInfo[iClient].sPrimary, "");
+			Format(g_eInfo[iClient].sPrimary, sizeof(g_eInfo[].sPrimary), sItem);
+			if (bPicked && IsPlayerAlive(iClient)) {
+				StripClientWeapons(iClient, CS_SLOT_PRIMARY);
+				GivePlayerItem(iClient, g_eInfo[iClient].sPrimary);
+			}
 			if (g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_SECONDARY_MENU] && g_ePlugin.iRound >= g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
 				DisplayWeaponsMenu(iClient, SECONDARY).Display(iClient, 15);
 		}
@@ -634,11 +685,12 @@ public int Secondary_Handler(Menu mMenu, MenuAction maAction, int iClient, int i
 		case MenuAction_Select: {
 			char sItem[32];
 			mMenu.GetItem(iPosition, sItem, sizeof(sItem));
-			g_eInfo[iClient].sSecondary = sItem;
-			StripClientWeapons(iClient, CS_SLOT_SECONDARY);
-			GivePlayerItem(iClient, sItem);
-			if (g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_GRENADES_MENU] && g_ePlugin.iRound >= g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_GRENADES_MENU_ROUND])
-				DisplayWeaponsMenu(iClient, GRENADES).Display(iClient, 15);
+			bool bPicked = StrEqual(g_eInfo[iClient].sSecondary, "");
+			Format(g_eInfo[iClient].sSecondary, sizeof(g_eInfo[].sSecondary), sItem);
+			if (bPicked && IsPlayerAlive(iClient)) {
+				StripClientWeapons(iClient, CS_SLOT_SECONDARY);
+				GivePlayerItem(iClient, g_eInfo[iClient].sSecondary);
+			}
 		}
 		case MenuAction_End:delete mMenu;
 	}
@@ -649,10 +701,8 @@ public int Grenades_Handler(Menu mMenu, MenuAction maAction, int iClient, int iP
 		case MenuAction_Select: {
 			char sItem[32];
 			mMenu.GetItem(iPosition, sItem, sizeof(sItem));
-			int iGrenadeSet = StringToInt(sItem);
-			g_eInfo[iClient].iGrenadeSet = iGrenadeSet;
-			StripClientWeapons(iClient, CS_SLOT_GRENADE);
-			GivePlayerGrenades(iClient, iGrenadeSet);
+			g_eInfo[iClient].iGrenadeSet = StringToInt(sItem);
+			CPrintToChat(iClient, "%s Wybrany zestaw granatów: {lime}%s", g_ePlugin.sChatTag, g_eGrenades[g_eInfo[iClient].iGrenadeSet].sName);
 		}
 		case MenuAction_End:delete mMenu;
 	}
@@ -660,11 +710,14 @@ public int Grenades_Handler(Menu mMenu, MenuAction maAction, int iClient, int iP
 
 /* [ Helpers ] */
 void PreparePlayerSetup(int iClient) {
-	if (!IsValidClient(iClient) || !IsPlayerAlive(iClient) || !HasGroup(iClient) || !g_bEnabled)return;
+	if (!IsValidClient(iClient) || !IsPlayerAlive(iClient) || !HasGroup(iClient) || !g_bEnabled || IsWarmup())return;
 	int iGroupId = g_eInfo[iClient].iGroupId;
 	if (!IsClientInTeam(iClient, g_eGroup[iGroupId].iStats[GROUP_TEAM]))
 		return;
 	
+	
+	if (g_eInfo[iClient].iGrenadeSet == -1)
+		GunMenu_Command(iClient, 0);
 	SetEntData(iClient, FindDataMapInfo(iClient, "m_iMaxHealth"), g_eGroup[iGroupId].iStats[GROUP_MAX_HP], 4, true);
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_SPAWN];
 	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_SPAWN_ROUND])
@@ -793,15 +846,22 @@ void PreparePlayerSetup(int iClient) {
 	if (g_iValue && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_HEAL_ROUND])
 		g_eInfo[iClient].iStats[CLIENT_HEALS] = g_iValue;
 	
-	if (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND] && g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
-		DisplayWeaponsMenu(iClient, MAIN).Display(iClient, 15);
-	else if (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND])
-		DisplayWeaponsMenu(iClient, PRIMARY).Display(iClient, 15);
-	else if (g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
-		DisplayWeaponsMenu(iClient, SECONDARY).Display(iClient, 15);
-	else if (g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU_ROUND])
-		DisplayWeaponsMenu(iClient, GRENADES).Display(iClient, 15);
+	/*if (g_eInfo[iClient].bGunMenu) {
+		if (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND] && g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
+			DisplayWeaponsMenu(iClient, MAIN).Display(iClient, 15);
+		else if (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND])
+			DisplayWeaponsMenu(iClient, PRIMARY).Display(iClient, 15);
+		else if (g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND])
+			DisplayWeaponsMenu(iClient, SECONDARY).Display(iClient, 15);
+		else if (g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU] && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU_ROUND])
+			DisplayWeaponsMenu(iClient, GRENADES).Display(iClient, 15);
+	}*/
+	GiveLastWeapons(iClient);
 	
+	/*if (g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU] && g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU_ROUND] <= g_ePlugin.iRound && g_eInfo[iClient].iGrenadeSet != -1) {
+		StripClientWeapons(iClient, CS_SLOT_GRENADE);
+		GivePlayerGrenades(iClient, g_eInfo[iClient].iGrenadeSet);
+	}*/
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_VISIBILITY];
 	if (g_iValue != 255 && g_ePlugin.iRound >= g_eGroup[iGroupId].iStats[GROUP_VISIBILITY_ROUND])
 		SetClientVisibility(iClient, g_iValue);
@@ -1326,7 +1386,7 @@ void ShowConnectInfo(int iClient) {
 		ReplaceString(sBuffer, sizeof(sBuffer), "{GROUP}", g_eGroup[iGroupId].sName);
 		SetHudTextParams(g_eGroup[iGroupId].fStats[GROUP_HUD_POSITION_X], g_eGroup[iGroupId].fStats[GROUP_HUD_POSITION_Y], 5.0, 
 			g_eGroup[iGroupId].iStats[GROUP_HUD_RED], g_eGroup[iGroupId].iStats[GROUP_HUD_GREEN], g_eGroup[iGroupId].iStats[GROUP_HUD_BLUE], 255, 1);
-		LoopValidClients(i)
+		LoopClients(i)
 		ShowSyncHudText(i, g_hHud, sBuffer);
 		
 	}
@@ -1356,7 +1416,7 @@ void ShowDisconnectInfo(int iClient) {
 		ReplaceString(sBuffer, sizeof(sBuffer), "{GROUP}", g_eGroup[iGroupId].sName);
 		SetHudTextParams(g_eGroup[iGroupId].fStats[GROUP_HUD_POSITION_X], g_eGroup[iGroupId].fStats[GROUP_HUD_POSITION_Y], 5.0, 
 			g_eGroup[iGroupId].iStats[GROUP_HUD_RED], g_eGroup[iGroupId].iStats[GROUP_HUD_GREEN], g_eGroup[iGroupId].iStats[GROUP_HUD_BLUE], 255);
-		LoopValidClients(i)
+		LoopClients(i)
 		ShowSyncHudText(i, g_hHud, sBuffer);
 	}
 	if (!StrEqual(g_eGroup[iGroupId].sGoodbyeChat, "")) {
@@ -1377,18 +1437,24 @@ void ShowDisconnectInfo(int iClient) {
 }
 
 void GiveLastWeapons(int iClient) {
-	StripClientWeapons(iClient);
-	if (!StrEqual(g_eInfo[iClient].sPrimary, "")) {
-		StripClientWeapons(iClient, CS_SLOT_PRIMARY);
-		GivePlayerItem(iClient, g_eInfo[iClient].sPrimary);
+	int iGroupId = g_eInfo[iClient].iGroupId;
+	if (!HasClientItemOnSlot(iClient, CS_SLOT_PRIMARY)) {
+		if (g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU] && g_eGroup[iGroupId].iStats[GROUP_PRIMARY_MENU_ROUND] <= g_ePlugin.iRound && !StrEqual(g_eInfo[iClient].sPrimary, "")) {
+			StripClientWeapons(iClient, CS_SLOT_PRIMARY);
+			GivePlayerItem(iClient, g_eInfo[iClient].sPrimary);
+		}
 	}
-	if (!StrEqual(g_eInfo[iClient].sSecondary, "")) {
-		StripClientWeapons(iClient, CS_SLOT_SECONDARY);
-		GivePlayerItem(iClient, g_eInfo[iClient].sSecondary);
+	if (!HasClientItemOnSlot(iClient, CS_SLOT_SECONDARY)) {
+		if (g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU] && g_eGroup[iGroupId].iStats[GROUP_SECONDARY_MENU_ROUND] <= g_ePlugin.iRound && !StrEqual(g_eInfo[iClient].sSecondary, "")) {
+			StripClientWeapons(iClient, CS_SLOT_SECONDARY);
+			GivePlayerItem(iClient, g_eInfo[iClient].sSecondary);
+		}
 	}
-	if (g_eInfo[iClient].iGrenadeSet != -1) {
-		StripClientWeapons(iClient, CS_SLOT_GRENADE);
-		GivePlayerGrenades(iClient, g_eInfo[iClient].iGrenadeSet);
+	if (!HasClientItemOnSlot(iClient, CS_SLOT_GRENADE)) {
+		if (g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU] && g_eGroup[iGroupId].iStats[GROUP_GRENADES_MENU_ROUND] <= g_ePlugin.iRound && g_eInfo[iClient].iGrenadeSet != -1) {
+			StripClientWeapons(iClient, CS_SLOT_GRENADE);
+			GivePlayerGrenades(iClient, g_eInfo[iClient].iGrenadeSet);
+		}
 	}
 }
 
@@ -1416,16 +1482,15 @@ bool CheckFlags(int iClient, char[] sFlags) {
 	if (StrEqual(sFlags, ""))return true;
 	if (GetUserFlagBits(iClient) & ADMFLAG_ROOT)return true;
 	int iCount = CountCharacters(sFlags);
-	if (iCount > 1) {
-		int iAccess = 0;
-		char sFlag[16];
-		for (int i = 0; i < iCount; i++) {
-			Format(sFlag, sizeof(sFlag), "%c", sFlags[i]);
-			if (GetUserFlagBits(iClient) & ReadFlagString(sFlag))
-				iAccess++;
-		}
-		if (iAccess == iCount)return true;
+	int iAccess = 0;
+	char sFlag[16];
+	for (int i = 0; i < iCount; i++) {
+		Format(sFlag, sizeof(sFlag), "%c", sFlags[i]);
+		if (GetUserFlagBits(iClient) & ReadFlagString(sFlag))
+			iAccess++;
 	}
+	if (iAccess == iCount)
+		return true;
 	if (GetUserFlagBits(iClient) & ReadFlagString(sFlags))return true;
 	if (StrEqual(sFlags, ""))return true;
 	return false;
@@ -1559,20 +1624,26 @@ void GivePlayerGrenades(int iClient, int iSetId) {
 	}
 }
 
+
+bool HasClientItemOnSlot(int iClient, int iSlot) {
+	if (GetPlayerWeaponSlot(iClient, iSlot) != -1)return true;
+	return false;
+}
+
 /* [ Chat Message ] */
 #define MAXLENGTH_NAME		128
 #define MAXLENGTH_MESSAGE	128
 public Action CP_OnChatMessage(int &iAuthor, ArrayList arRecipients, char[] sFlagString, char[] sName, char[] sMessage, bool &bProcessColors, bool &bRemoveColors) {
-	if (!g_ePlugin.bChatSystem[0] || !IsValidClient(iAuthor) || !HasGroup(iAuthor) || g_bShopSystem)
+	if (!g_ePlugin.bChatSystem[0] || !IsValidClient(iAuthor) || !HasGroup(iAuthor) || StrEqual(g_eGroup[g_eInfo[iAuthor].iGroupId].sChatTag, ""))
 		return Plugin_Continue;
-	
 	Format(sName, MAXLENGTH_NAME, " %s\x03 %s", g_eGroup[g_eInfo[iAuthor].iGroupId].sChatTag, sName);
+	Format(sMessage, MAXLENGTH_MESSAGE, "%s", sMessage);
 	CFormatColor(sName, MAXLENGTH_NAME);
 	return Plugin_Changed;
 }
 
 public Action OnChatMessage(int &iAuthor, Handle hRecipients, char[] sName, char[] sMessage) {
-	if (!g_ePlugin.bChatSystem[1] || !IsValidClient(iAuthor) || !HasGroup(iAuthor) || g_bShopSystem)
+	if (!g_ePlugin.bChatSystem[1] || !IsValidClient(iAuthor) || !HasGroup(iAuthor) || StrEqual(g_eGroup[g_eInfo[iAuthor].iGroupId].sChatTag, ""))
 		return Plugin_Continue;
 	Format(sName, MAXLENGTH_NAME, " %s \x03 %s", g_eGroup[g_eInfo[iAuthor].iGroupId].sChatTag, sName);
 	Format(sMessage, MAXLENGTH_MESSAGE, "%s", sMessage);
@@ -1607,17 +1678,11 @@ public void OnLibraryAdded(const char[] sName) {
 		PrintToServer("✔ pVip Core | Wykryto Simple Chat Processor by Mini.");
 		return;
 	}
-	else if (StrEqual(sName, "pShop")) {
-		g_bShopSystem = true;
-		PrintToServer("✔ pVip Core | Wykryto sklep by Pawel.");
-		return;
-	}
 }
 
 public void OnLibraryRemoved(const char[] sName) {
 	if (StrEqual(sName, "chat-processor"))g_ePlugin.bChatSystem[0] = false;
 	else if (StrEqual(sName, "scp"))g_ePlugin.bChatSystem[1] = false;
-	else if (StrEqual(sName, "pShop"))g_bShopSystem = false;
 }
 
 public int Native_GetGroupsCount(Handle hPlugin, int iNumParams) {
