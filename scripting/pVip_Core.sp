@@ -58,6 +58,7 @@ ArrayList g_arWeapons[2][5];
 
 /* [ Integers ] */
 int g_iValue;
+int g_iPhase;
 
 /* [ Floats ] */
 float g_fValue;
@@ -171,6 +172,7 @@ public void OnAllPluginsLoaded() {
 public void OnMapStart() {
 	g_bEnabled = true;
 	g_eCore.iGroups = 0;
+	g_iPhase = 0;
 }
 
 public void OnClientPostAdminCheck(int iClient) {
@@ -215,14 +217,14 @@ public Action Debug_Command(int iClient, int iArgs) {
 public Action DoubleJump_Command(int iClient, int iArgs) {
 	if (HasGroup(iClient) && g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_DOUBLE_JUMP] && g_bEnabled) {
 		g_eInfo[iClient].bDoubleJump = g_eInfo[iClient].bDoubleJump ? false:true;
-		CPrintToChat(iClient, "%s Double Jump został %s{default}.", g_eConfig.sChatTag, g_eInfo[iClient].bDoubleJump ? "{lime}włączony":"{lightred}wyłączony");
+		CPrintToChat(iClient, "%s Double Jump został %s{default}.", g_eCore.sChatTag, g_eInfo[iClient].bDoubleJump ? "{lime}włączony":"{lightred}wyłączony");
 		return Plugin_Handled;
 	}
 	return Plugin_Handled;
 }
 public Action CS_OnBuyCommand(int iClient, const char[] sWeapon) {
 	if (g_eCore.iDisableBuyHelemet && g_eCore.iRound == 1 && StrEqual(sWeapon, "assaultsuit") && g_bEnabled) {
-		CPrintToChat(iClient, "%s Nie możesz tego kupić na pistoletówce.", g_eConfig.sChatTag);
+		CPrintToChat(iClient, "%s Nie możesz tego kupić na pistoletówce.", g_eCore.sChatTag);
 		return Plugin_Handled;
 	}
 	return Plugin_Continue;
@@ -238,11 +240,11 @@ public Action Heal_Command(int iClient, int iArgs) {
 			else
 				SetClientHealth(iClient, GetClientHealth(iClient) + g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_HEAL_VALUE]);
 			g_eInfo[iClient].iStats[CLIENT_HEALS]--;
-			CPrintToChat(iClient, "%s Zostałeś {lime}uleczony{default}. Pozostałe apteczki: {lime}%d{default}.", g_eConfig.sChatTag, g_eInfo[iClient].iStats[CLIENT_HEALS]);
+			CPrintToChat(iClient, "%s Zostałeś {lime}uleczony{default}. Pozostałe apteczki: {lime}%d{default}.", g_eCore.sChatTag, g_eInfo[iClient].iStats[CLIENT_HEALS]);
 		}
-		else CPrintToChat(iClient, "%s Posiadasz max hp.", g_eConfig.sChatTag);
+		else CPrintToChat(iClient, "%s Posiadasz max hp.", g_eCore.sChatTag);
 	}
-	else CPrintToChat(iClient, "%s Nie posiadasz uleczeń.", g_eConfig.sChatTag);
+	else CPrintToChat(iClient, "%s Nie posiadasz uleczeń.", g_eCore.sChatTag);
 	return Plugin_Handled;
 }
 
@@ -258,9 +260,9 @@ public Action Event_WeaponReload(Event eEvent, const char[] sName, bool bDontBro
 			else
 				SetClientHealth(iClient, GetClientHealth(iClient) + g_eGroup[g_eInfo[iClient].iGroupId].iStats[GROUP_HEAL_VALUE]);
 			g_eInfo[iClient].iStats[CLIENT_HEALS]--;
-			CPrintToChat(iClient, "%s Zostałeś {lime}uleczony{default}. Pozostałe apteczki: {lime}%d{default}.", g_eConfig.sChatTag, g_eInfo[iClient].iStats[CLIENT_HEALS]);
+			CPrintToChat(iClient, "%s Zostałeś {lime}uleczony{default}. Pozostałe apteczki: {lime}%d{default}.", g_eCore.sChatTag, g_eInfo[iClient].iStats[CLIENT_HEALS]);
 		}
-		else CPrintToChat(iClient, "%s Posiadasz max hp.", g_eConfig.sChatTag);
+		else CPrintToChat(iClient, "%s Posiadasz max hp.", g_eCore.sChatTag);
 	}
 	if (g_eInfo[iClient].bAmmo[1]) {
 		int iWeapon = GetEntPropEnt(iClient, Prop_Send, "m_hActiveWeapon");
@@ -315,13 +317,13 @@ public Action Event_PlayerDeath(Event eEvent, const char[] sName, bool bDontBroa
 		if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ASSIST_ROUND]) {
 			SetClientCash(iAssister, GetClientCash(iAssister) + g_iValue);
 			if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ASSIST_INFO])
-				CPrintToChat(iAssister, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za asystowanie przy zabójstwie", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+				CPrintToChat(iAssister, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za asystowanie przy zabójstwie", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 		}
 		g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ASSIST];
 		if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ASSIST_ROUND]) {
 			SetClientHealth(iAssister, GetClientHealth(iAssister) + g_iValue);
 			if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ASSIST_INFO])
-				CPrintToChat(iAssister, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za asystowanie przy zabójstwie", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+				CPrintToChat(iAssister, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za asystowanie przy zabójstwie", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 		}
 	}
 	if (HasGroup(iClient)) {
@@ -343,13 +345,13 @@ public Action Event_PlayerDeath(Event eEvent, const char[] sName, bool bDontBroa
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_HS_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_HS_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo poprzez {lime}HeadShota{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo poprzez {lime}HeadShota{default}.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_HS];
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_HS_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_HS_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo poprzez {lime}HeadShota{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo poprzez {lime}HeadShota{default}.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 			else {
@@ -357,13 +359,13 @@ public Action Event_PlayerDeath(Event eEvent, const char[] sName, bool bDontBroa
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KILL_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo .", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo .", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL];
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KILL_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 			
@@ -372,13 +374,13 @@ public Action Event_PlayerDeath(Event eEvent, const char[] sName, bool bDontBroa
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_NOSCOPE_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_NOSCOPE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo poprzez {lime}Noscope{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo poprzez {lime}Noscope{default}.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_NOSCOPE];
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_NOSCOPE_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_NOSCOPE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo poprzez {lime}Noscope{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo poprzez {lime}Noscope{default}.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 			if (IsWeaponKnife(sWeapon)) {
@@ -386,13 +388,13 @@ public Action Event_PlayerDeath(Event eEvent, const char[] sName, bool bDontBroa
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KNIFE_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_KNIFE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}noża{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}noża{default}.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KNIFE];
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KNIFE_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_KNIFE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}noża{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}noża{default}.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 			else if (IsWeaponGrenade(sWeapon)) {
@@ -400,13 +402,13 @@ public Action Event_PlayerDeath(Event eEvent, const char[] sName, bool bDontBroa
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_GRENADE_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_GRENADE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}granatu{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}granatu{default}.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_GRENADE];
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_GRENADE_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_GRENADE_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}granatu{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}granatu{default}.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 			else if (StrContains(sWeapon, "taser") != -1) {
@@ -414,13 +416,13 @@ public Action Event_PlayerDeath(Event eEvent, const char[] sName, bool bDontBroa
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ZEUS_ROUND]) {
 					SetClientCash(iAttacker, GetClientCash(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_ZEUS_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}zeusa{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za zabójstwo z {lime}zeusa{default}.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 				g_iValue = g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ZEUS];
 				if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ZEUS_ROUND]) {
 					SetClientHealth(iAttacker, GetClientHealth(iAttacker) + g_iValue);
 					if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_HP_ZEUS_INFO])
-						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}zeusa{default}.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+						CPrintToChat(iAttacker, "%s Jako {purple}%s{default} dostałeś {lime}+%d HP{default} za zabójstwo z {lime}zeusa{default}.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 				}
 			}
 		}
@@ -439,7 +441,7 @@ public Action Event_BombPlanted(Event eEvent, const char[] sName, bool bDontBroa
 	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_PLANT_ROUND]) {
 		SetClientCash(iClient, GetClientCash(iClient) + g_iValue);
 		if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_PLANT_INFO])
-			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za podłożenie bomby.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za podłożenie bomby.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 	}
 	return Plugin_Continue;
 }
@@ -455,7 +457,7 @@ public Action Event_BombDefused(Event eEvent, const char[] sName, bool bDontBroa
 	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_DEFUSE_ROUND]) {
 		SetClientCash(iClient, GetClientCash(iClient) + g_iValue);
 		if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_DEFUSE_INFO])
-			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za rozbrojenie bomby.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za rozbrojenie bomby.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 	}
 	return Plugin_Continue;
 }
@@ -471,7 +473,7 @@ public Action Event_HostageRescued(Event eEvent, const char[] sName, bool bDontB
 	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_HOSTAGE_ROUND]) {
 		SetClientCash(iClient, GetClientCash(iClient) + g_iValue);
 		if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_HOSTAGE_INFO])
-			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za uratowanie zakładnika.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za uratowanie zakładnika.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 	}
 	return Plugin_Continue;
 }
@@ -487,7 +489,7 @@ public Action Event_RoundMvp(Event eEvent, const char[] sName, bool bDontBroadca
 	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_MVP_ROUND]) {
 		SetClientCash(iClient, GetClientCash(iClient) + g_iValue);
 		if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_MVP_INFO])
-			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za bycie MVP.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} za bycie MVP.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 	}
 	return Plugin_Continue;
 }
@@ -497,7 +499,15 @@ public Action Event_RoundStart(Event eEvent, const char[] sName, bool bDontBroad
 }
 
 public Action Event_MatchRestart(Event eEvent, const char[] sName, bool bDontBroadcast) {
+	if (StrEqual(sName, "announce_phase_end")) {
+		g_iPhase++;
+		if (g_iPhase >= 2) {
+			return Plugin_Continue;
+		}
+	}
 	g_eCore.iRound = 0;
+	
+	return Plugin_Continue;
 }
 
 /* [ Hooks ] */
@@ -561,7 +571,7 @@ public Action Timer_Respawn(Handle hTimer, int iClient) {
 	if (!g_bEnabled)return;
 	if (IsValidClient(iClient, true)) {
 		CS_RespawnPlayer(iClient);
-		CPrintToChat(iClient, "%s Jako {purple}%s{default} udało ci się odrodzić.", g_eConfig.sChatTag, g_eGroup[g_eInfo[iClient].iGroupId].sName);
+		CPrintToChat(iClient, "%s Jako {purple}%s{default} udało ci się odrodzić.", g_eCore.sChatTag, g_eGroup[g_eInfo[iClient].iGroupId].sName);
 		Call_StartForward(g_gfRespawned);
 		Call_PushCell(iClient);
 		Call_Finish();
@@ -715,7 +725,7 @@ void PreparePlayerSetup(int iClient) {
 	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_SPAWN_ROUND]) {
 		SetClientCash(iClient, GetClientCash(iClient) + g_iValue);
 		if (g_eGroup[iGroupId].iStats[GROUP_EXTRA_MONEY_MVP_INFO])
-			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} na start.", g_eConfig.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
+			CPrintToChat(iClient, "%s Jako {purple}%s{default} dostałeś {lime}+%d${default} na start.", g_eCore.sChatTag, g_eGroup[iGroupId].sName, g_iValue);
 	}
 	g_iValue = g_eGroup[iGroupId].iStats[GROUP_KEVLAR];
 	if (g_iValue && g_eCore.iRound >= g_eGroup[iGroupId].iStats[GROUP_KEVLAR_ROUND])
@@ -898,7 +908,7 @@ void LoadConfig() {
 		g_eCore.iDeathmatchMode = kv.GetNum("Deathmatch_Mode");
 		g_eCore.iDisableBuyHelemet = kv.GetNum("Disable_Buy_Helmet_First_Round");
 		kv.GetString("Menu_Tag", g_eCore.sMenuTag, sizeof(g_eCore.sMenuTag));
-		kv.GetString("Chat_Tag", g_eConfig.sChatTag, sizeof(g_eConfig.sChatTag));
+		kv.GetString("Chat_Tag", g_eCore.sChatTag, sizeof(g_eCore.sChatTag));
 		kv.GoBack();
 	}
 	if (kv.JumpToKey("Menu Broni")) {
