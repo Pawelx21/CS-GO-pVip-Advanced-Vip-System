@@ -119,8 +119,12 @@
 #define GROUP_HUD_BLUE					108
 #define GROUP_RESPAWN_CHANCE			109
 #define GROUP_RESPAWN_CHANCE_ROUND		110
-#define GROUP_INDEX						111
-#define INTEGER_FIELDS					112
+#define GROUP_UNLIMITED_PRIMARY_AMMO	111
+#define GROUP_UNLIMITED_PRIMARY_AMMO_ROUND	112
+#define GROUP_UNLIMITED_SECONDARY_AMMO	113
+#define GROUP_UNLIMITED_SECONDARY_AMMO_ROUND 114
+#define GROUP_INDEX						115
+#define INTEGER_FIELDS					116
 #define FLOAT_FIELDS					4
 #define CLIENT_DAMAGE_GIVE				0
 #define CLIENT_DAMAGE_TAKE				1
@@ -137,7 +141,7 @@
 #define MAX_SET_ITEMS					6
 
 /* [ Enums ] */
-enum struct Enum_GroupInfo {
+enum struct Enum_VipGroupInfo {
 	char sName[32];
 	char sFlags[16];
 	char sTableTag[32];
@@ -149,7 +153,7 @@ enum struct Enum_GroupInfo {
 	int iStats[INTEGER_FIELDS];
 	float fStats[FLOAT_FIELDS];
 }
-enum struct Enum_ClientInfo {
+enum struct Enum_VipClientInfo {
 	char sName[MAX_NAME_LENGTH];
 	int iStats[CLIENT_MAX_FIELDS];
 	char sPrimary[32];
@@ -158,7 +162,7 @@ enum struct Enum_ClientInfo {
 	int iGrenadeSet;
 	bool bDoubleJump;
 	bool bGunMenu;
-	
+	bool bAmmo[2];
 	void Reset() {
 		this.sName = "";
 		for (int i = 0; i < CLIENT_MAX_FIELDS; i++)
@@ -169,9 +173,11 @@ enum struct Enum_ClientInfo {
 		this.bDoubleJump = true;
 		this.bGunMenu = true;
 		this.iGrenadeSet = -1;
+		this.bAmmo[0] = false;
+		this.bAmmo[1] = false;
 	}
 }
-enum struct Enum_PluginInfo {
+enum struct Enum_VipCoreInfo {
 	int iDeathmatchMode;
 	int iDisableBuyHelemet;
 	int iGroups;
@@ -182,7 +188,7 @@ enum struct Enum_PluginInfo {
 	char sMenuTag[64];
 	char sChatTag[64];
 }
-enum struct Enum_GrenadeSetsInfo {
+enum struct Enum_VipGrenadeSetsInfo {
 	char sName[64];
 	char sFlags[16];
 	int iTeam;
@@ -204,7 +210,7 @@ native int pVip_GetGroupsCount();
  * @param aInfo				Enum_GroupInfo
  * @noreturn
  */
-native void pVip_GetGroupInfo(int iGroupId, any aGroup[sizeof(Enum_GroupInfo)]);
+native void pVip_GetGroupInfo(int iGroupId, any aGroup[sizeof(Enum_VipGroupInfo)]);
 
 /*
  * Pobiera informacje o danym graczu.
@@ -213,7 +219,7 @@ native void pVip_GetGroupInfo(int iGroupId, any aGroup[sizeof(Enum_GroupInfo)]);
  * @param aInfo				Enum_ClientInfo
  * @noreturn
  */
-native void pVip_GetClientInfo(int iClient, any aGroup[sizeof(Enum_ClientInfo)]);
+native void pVip_GetClientInfo(int iClient, any aGroup[sizeof(Enum_VipClientInfo)]);
 
 /*
  * Ustawia grupę gracza.
@@ -230,7 +236,7 @@ native bool pVip_SetClientGroup(int iClient, int iGroupId);
  * @param aPlugin			Enum_PluginInfo
  * @noreturn
  */
-native void pVip_GetPluginInfo(any aPlugin[sizeof(Enum_PluginInfo)]);
+native void pVip_GetPluginInfo(any aPlugin[sizeof(Enum_VipCoreInfo)]);
 
 /*
  * Wywołuje funkcję PreparePlayerSetup.
